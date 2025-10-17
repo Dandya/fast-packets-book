@@ -34,9 +34,15 @@
 
 ### Получение сетевых пакетов
 
+(https://blog.packagecloud.io/monitoring-tuning-linux-networking-stack-receiving-data/)
+
 ### Отправка сетевых пакетов
 
+(https://blog.packagecloud.io/monitoring-tuning-linux-networking-stack-sending-data/)
+
 ## Сокеты ядра Linux
+
+(https://man7.org/linux/man-pages/man7/socket.7.html)
 
 ## Полезные материалы
 
