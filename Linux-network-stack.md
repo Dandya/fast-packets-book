@@ -35,6 +35,7 @@
 ### Получение сетевых пакетов
 
 (https://blog.packagecloud.io/monitoring-tuning-linux-networking-stack-receiving-data/)
+(https://habr.com/ru/companies/vk/articles/314168/)
 
 ### Отправка сетевых пакетов
 
