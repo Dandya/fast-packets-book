@@ -4,7 +4,7 @@
 
 ## Установка компонентов
 
-Для установки «QEMU» подойдёт любая операционная система на базе ядра «Linux». Систему «QEMU» можно установить из репозиториев либо скомпилировать из исходного кода. Ниже описан способ установки из репозиториев с настройкой через приложение «virt-manager» для упрощения настройки и использования.
+Для установки «QEMU» подойдёт любая операционная система на базе ядра «Linux». Систему «QEMU» можно установить из репозиториев либо скомпилировать из исходного кода. Ниже описан способ установки из репозиториев с настройкой через приложение «Virtual Machine Manager» для упрощения настройки и использования.
 
 Установим необходимые пакеты:
 
@@ -19,23 +19,66 @@ sudo apt update
 sudo apt install qemu-kvm qemu-utils virt-manager libvirt-daemon-system libvirt-clients bridge-utils
 ```
 
-Чтобы иметь возможность работы с «virt-manager» без прав суперпользователя необходимо выполнить команду:
-
-
-```sh
-# Добавление текущего пользователя в группу libvirt
-sudo usermod -a -G libvirt $USER
-```
-
-После установки необходимо перезапустить систему. Далее запуск «virt-manager» можно производить через графический интерфейс или через командную строку:
+После установки необходимо перезапустить систему. Далее запуск «Virtual Machine Manager» можно производить через графический интерфейс или через командную строку:
 
 ```sh
-virt-manager
+sudo virt-manager
 ```
 
-## Создание виртуальной машины
+## Создание виртуальных машин
+
+Чтобы создать виртуальную машину в «Virtual Machine Manager» можно использовать как графический интерфейс, так и консоль. Ниже представлен вариант создания и настройки виртуальной машины через консоль.
+
+```sh
+# Проверяет работу службы виртуализации libvirtd
+systemctl status libvirtd
+# Перед запуском следующей команды загрузите файл по по пути
+PATH_TO_DEBIAN='/tmp/debian-13.1.0-amd64-netinst.iso'
+# Описываем изолированную сеть
+cat >> /home/$USER/Desktop/isolated-network.xml << EOF
+<network>
+  <name>vm-to-vm</name>
+  <forward mode='none'/>
+  <bridge name='virbr-vm2vm' stp='on' delay='0'/>
+  <ip address='192.168.100.1' netmask='255.255.255.0'>
+    <dhcp>
+      <range start='192.168.100.100' end='192.168.100.200'/>
+    </dhcp>
+  </ip>
+</network>
+EOF
+# Опеределяем сеть по XML файлу
+sudo virsh net-define /home/$USER/Desktop/isolated-network.xml
+# Запускаем сеть
+sudo virsh net-start vm-to-vm
+# Настраиваем автозапуск
+sudo virsh net-autostart vm-to-vm
+
+# virt-install - утилита для создания виртуальной машины
+# --name - имя виртуальной машины
+# --vcpus - количество доступных ядер
+# --memory - размер оперативной памяти в MB
+# --disk - конфигурация накопителя
+# --os-variant - название операционной системы
+# --cdrom - конфигурация дисковода
+# --network - конфигурация сетевого адаптера
+# --graphics - конфигурация вывода
+sudo virt-install \
+  --name=deb13-fast-packets \
+  --vcpus=2 \
+  --memory=2048 \
+  --disk size=30,path=/home/$USER/Desktop/deb13-fast-packets.qcow2 \
+  --os-variant=debian13 \
+  --cdrom=$PATH_TO_DEBIAN \
+  --network bridge=virbr0,model=virtio \
+  --network network=vm-to-vm,model=igb \
+  --graphics vnc
+```
+
+Далее производим стандартную установку системы (графическая оболочка будет не нужна).
 
 
+## Сборка модуля «IGB»
 
 
 
