@@ -47,13 +47,13 @@
 
 ## Полезные материалы
 
-1. Иностранный стандарт ISO/IEC 7498 или ГОСТ Р ИСО/МЭК 7498-1-99.
+- [Стандарт ISO/IEC 7498](https://ecma-international.org/wp-content/uploads/s020269e.pdf) или [ГОСТ Р ИСО/МЭК 7498-1-99](https://internet-law.ru/gosts/gost/4269/).
 
 ## Источники
 
-1. https://www.gartner.com/en/information-technology/glossary/nic-network-interface-card
+1. [Определение сетевой карты](https://www.gartner.com/en/information-technology/glossary/nic-network-interface-card)
 2. Цилюрик О. И. Расширения ядра Linux: драйверы и модули. — СПб.: БХВ-Петербург, 688 с.: ил. ISBN 978-5-9775-1719-5
-3. https://www.kernel.org/doc/html/latest/networking/device_drivers/ethernet/intel/igb.html
-4. https://www.kernel.org/doc/html/latest/filesystems/btrfs.html
-5. https://www.kernel.org/doc/html/latest/virt/kvm/api.html
+3. [Документация ядра «Linux» о модуле «IGB»](https://www.kernel.org/doc/html/latest/networking/device_drivers/ethernet/intel/igb.html)
+4. [Документация ядра «Linux» о модуле «BTRFS»](https://www.kernel.org/doc/html/latest/filesystems/btrfs.html)
+5. [Документация ядра «Linux» о модуле «KVM»](https://www.kernel.org/doc/html/latest/virt/kvm/api.html)
 
