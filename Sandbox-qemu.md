@@ -108,11 +108,13 @@ apt update && apt install linux-headers-$(uname -r) build-essential
 После загружаем исходный код модуля «IGB» и компилируем драйвер:
 
 ```sh
-# Загрузка исходников
-wget https://github.com/intel/ethernet-linux-igb/releases/download/v5.19.4/igb-5.19.4.tar.gz
-tar -xf igb-5.19.4.tar.gz
-cd igb-5.19.4/src
-# Компиляция модуля
+# На основной машине выполняем копирование исходников драйвера
+scp -r contrib/ethernet-linux-igb-5.19.4 test@$(ip neigh | grep virbr0 | awk '{print $1}'):/home/test
+```
+
+```sh
+# Возвращаемся на виртуальную машину и выполняем компиляцию
+cd ethernet-linux-igb-5.19.4/src
 make
 ```
 
