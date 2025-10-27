@@ -36,7 +36,7 @@
 3. обработка прерываний;
 4. запись и чтение кадров.
 
-Ядро Linux является монолитным с поддержкой модулей ядра [2]. Модули ядра могут выполнять различные функции от реализации драйверов (модуль «IGB» [3]) и файловых систем (модуль «BTRFS» [4]) до виртуализации (модуль «KVM» [5]), поэтому далее понятия модуля ядра и драйвера будут одним и тем же. Дальнейшее описание работы драйверов сетевых карт будет основано на реализаци модуля «IGB», так как его работу можно эмулировать в системе виртуализации «QEMU» (см. [создание песочницы](Sandbox-qemu.md)).
+Ядро Linux является монолитным с поддержкой модулей ядра [2]. Модули ядра могут выполнять различные функции от реализации драйверов (модуль «IGB» [3]) и файловых систем (модуль «BTRFS» [4]) до виртуализации (модуль «KVM» [5]), поэтому далее понятия модуля ядра и драйвера будут одним и тем же. Дальнейшее описание работы драйверов сетевых карт будет основано на реализацииЫ модуля «IGB», так как его работу можно эмулировать в системе виртуализации «QEMU» (см. [создание песочницы](Sandbox-qemu.md)).
 
 ### Инициализация и деинициализация
 
@@ -88,7 +88,7 @@ static struct pci_driver igb_driver = {
 	.remove   = __devexit_p(igb_remove),
 	// Функция приостановки устройства
 	.suspend  = igb_suspend,
-	// Функция возообновления работы устройства
+	// Функция возобновления работы устройства
 	.resume   = igb_resume,
 	// Возможны и другие функции
 	// в зависимости от конфигурации
@@ -99,6 +99,7 @@ static struct pci_driver igb_driver = {
 static int __init igb_init_module(void)
 {
 	...
+	// Установка структуры с данными драйвера
 	ret = pci_register_driver(&igb_driver);
 	...
 }
@@ -109,14 +110,33 @@ module_init(igb_init_module);
 
 После того, как модуль будет инициализирован, запустится функция `igb_probe` для каждого поддерживаемого устройства, которая выполнит их инициализацию. Для драйвера «IGB» устройствами будут являться сетевые интерфейсы. Их инициализация состоит из следующих шагов:
 
-1. ...
+1. Инициализация PCI-устройства [6];
 2. ...
 
 ```c
 // src/igb/igb_main.c
 // Пример инициализации устройства
-
+static int igb_probe(struct pci_dev *pdev,
+			       const struct pci_device_id *ent)
+{
+	...
+	struct net_device *netdev;
+	struct igb_adapter *adapter;
+	int err;
+	...
+	// Инициализация PCI-устройства
+	err = pci_enable_device_mem(pdev);
+	if (err)
+		return err;
+	...
 ```
+
+Далее рассмотрим технологии, которые применяются при работе сетевой карты.
+
+#### DMA
+
+DMA (Direct Memory Access) — это технология, позволяющая устройствам ввода/вывода читать и записывать данные в оперативную память напрямую, без участия центрального процессора (CPU). 
+
 
 (Устройства на шине PCI [2])
 (Драйверы: сетевой интерфейс [2])
@@ -134,10 +154,12 @@ module_init(igb_init_module);
 ## Сокеты ядра Linux
 
 (https://man7.org/linux/man-pages/man7/socket.7.html)
+(https://habr.com/ru/articles/886058/)
 
 ## Полезные материалы
 
 - [Стандарт ISO/IEC 7498](https://ecma-international.org/wp-content/uploads/s020269e.pdf) или [ГОСТ Р ИСО/МЭК 7498-1-99](https://internet-law.ru/gosts/gost/4269/).
+- [How To Write Linux PCI Drivers](https://github.com/torvalds/linux/blob/master/Documentation/PCI/pci.rst)
 
 ## Источники
 
@@ -146,4 +168,6 @@ module_init(igb_init_module);
 3. [Документация ядра «Linux» о модуле «IGB»](https://www.kernel.org/doc/html/latest/networking/device_drivers/ethernet/intel/igb.html)
 4. [Документация ядра «Linux» о модуле «BTRFS»](https://www.kernel.org/doc/html/latest/filesystems/btrfs.html)
 5. [Документация ядра «Linux» о модуле «KVM»](https://www.kernel.org/doc/html/latest/virt/kvm/api.html)
+6. [Документация ядра «Linux» о работе с PCI](https://www.kernel.org/doc/html/next/driver-api/pci/pci.html)
+7. [Документация ядра «Linux» о работе с DMA](https://www.kernel.org/doc/html/latest/core-api/dma-api-howto.html)
 

@@ -47,7 +47,7 @@ cat >> /home/$USER/Desktop/isolated-network.xml << EOF
   </ip>
 </network>
 EOF
-# Опеределяем сеть по XML файлу
+# Определяем сеть по XML файлу
 sudo virsh net-define /home/$USER/Desktop/isolated-network.xml
 # Запускаем сеть
 sudo virsh net-start vm-to-vm
