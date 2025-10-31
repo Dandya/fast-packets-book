@@ -5,9 +5,15 @@
 В данном разделе разбирается устройство сетевого стека ядра Linux от сетевой карты до сокетов.
 
 1. [Драйвер сетевой карты](#драйвер-сетевой-карты)
-	 1. [Инициализация и деинициализация](#инициализация-и-деинициализация)
-	 2. [Получение сетевых пакетов](#получение-сетевых-пакетов)
-	 3. [Отправка сетевых пакетов](#отправка-сетевых-пакетов)
+	1. [Основные технологии](#основные-технологии)
+       1. [DMA](#dma)
+       2. [DCA](#dca)
+       3. [Кольцевые очереди](#кольцевые-очереди)
+       4. [SoftIRQ](#softirq)
+       5. [NAPI](#napi)
+	2. [Установка и удаление](#установка-и-удаление)
+	3. [Получение сетевых пакетов](#получение-сетевых-пакетов)
+	4. [Отправка сетевых пакетов](#отправка-сетевых-пакетов)
 2. [Сокеты ядра Linux](#сокеты-ядра-linux)
 3. [Полезные материалы](#полезные-материалы)
 4. [Источники](#источники)
@@ -38,7 +44,32 @@
 
 Ядро Linux является монолитным с поддержкой модулей ядра [2]. Модули ядра могут выполнять различные функции от реализации драйверов (модуль «IGB» [3]) и файловых систем (модуль «BTRFS» [4]) до виртуализации (модуль «KVM» [5]), поэтому далее понятия модуля ядра и драйвера будут одним и тем же. Дальнейшее описание работы драйверов сетевых карт будет основано на реализацииЫ модуля «IGB», так как его работу можно эмулировать в системе виртуализации «QEMU» (см. [создание песочницы](Sandbox-qemu.md)).
 
-### Инициализация и деинициализация
+### Основные технологии
+
+Рассмотрим технологии, которые применяются при работе сетевой карты.
+
+#### DMA
+
+DMA (Direct Memory Access) — это технология, позволяющая устройствам ввода/вывода читать и записывать данные в оперативную память напрямую, без участия центрального процессора (CPU).
+
+Для настройки работы DMA используются функции «dma_set_mask», которая настраивает маску для потоковых DMA-операций (одиночные передачи), «dma_set_coherent_mask», которая настраивает маску для когерентных DMA-операций (постоянные отображения памяти), или «dma_set_mask_and_coherent», которая настраивает маску и для потоковых, и для когерентных DMA-операций [7].
+
+(Описать картинку отображения памяти).
+
+#### DCA
+
+### Кольцевые очереди
+
+### SoftIRQ
+
+### NAPI
+
+
+(Устройства на шине PCI [2])
+(Драйверы: сетевой интерфейс [2])
+(Из исходного кода/module_deinit)
+
+### Установка и удаление
 
 Каждое подключенное устройство, например, по шине PCI (Peripheral component interconnect) или по USB (Universal Serial Bus) имеет два численных индекса [1]:
 
@@ -95,7 +126,7 @@ static struct pci_driver igb_driver = {
 	/* ... */
 };
 
-// Пример инициализации модуля
+// Пример установки модуля
 static int __init igb_init_module(void)
 {
 	/* ... */
@@ -104,20 +135,25 @@ static int __init igb_init_module(void)
 	/* ... */
 }
 
-// Регистрация функции инициализации
+// Регистрация функции установки модуля
 module_init(igb_init_module);
 ```
 
-После того, как модуль будет инициализирован, запустится функция `igb_probe` (`igb_driver.probe`) для каждого поддерживаемого устройства, которая выполнит их инициализацию. Для драйвера «IGB» устройствами будут являться сетевые интерфейсы. Их инициализация состоит из следующих шагов:
+После того, как модуль будет установлен в ядро, запустится функция `igb_probe` (`igb_driver.probe`) для каждого поддерживаемого устройства, которая выполнит их инициализацию. Для драйвера «IGB» устройствами будут являться сетевые интерфейсы. Их инициализация состоит из следующих шагов:
 
 1. Инициализация PCI-устройства [6];
-2. Установка маски DMA [7];
+2. Установка маски DMA (см. [DMA](#dma)) [7];
 3. Резервирование участков памяти [6];
 4. Захват шины PCI для управления устройством [6];
-5. Создание и заполнение структуры «net_device» для регистрации сетевого интерфейса [7];
+5. Создание и заполнение структуры «net_device» для регистрации сетевого интерфейса [8];
 6. Регистрирация поддерживаемых функций ethtool (см. [настройка и тестирование](Settings-and-testing.md));
-7. Настройка прерываний и подсистемы NAPI [8]
-8. Множество других настроек в зависимости от конфигурации и устройства
+7. Настройка прерываний и подсистемы NAPI (см. [NAPI](#napi)) [9];
+8. Настройка наблюдателя, который перезагружает сетевой интерфейс в случае проблем;
+9. Установка новых настроек интерфейса;
+10. Регистрация интерфейса в сетевой части ядра;
+11. Получение прямого доступа к управлению интерфейсом;
+12. Инициализация технологии DCA (см. [DCA](#dca)) [10];
+13. Множество других настроек в зависимости от конфигурации и устройства.
 
 ```c
 // src/igb/igb_main.c
@@ -216,6 +252,7 @@ static int igb_probe(struct pci_dev *pdev,
 	// Создание и заполнение структуры net_device для регистрации сетевого интерфейса
 	netdev = alloc_etherdev_mq(sizeof(struct igb_adapter),
 				   IGB_MAX_TX_QUEUES);
+
 	/* ... */
 
 	if (!netdev)
@@ -243,47 +280,323 @@ static int igb_probe(struct pci_dev *pdev,
 	igb_set_ethtool_ops(netdev);
 
 	/* ... */
-
-	strscpy(netdev->name, pci_name(pdev), sizeof(netdev->name));
-
-	/* ... */
 	
 	// Настройка прерываний и подсистемы NAPI
+	// igb_sw_init вызывает igb_init_interrupt_scheme
+	// igb_init_interrupt_scheme вызывает igb_alloc_q_vectors
+	// igb_alloc_q_vectors вызывает igb_alloc_q_vector
+	// igb_alloc_q_vector вызывает netif_napi_add
 	err = igb_sw_init(adapter);
 	if (err)
 		goto err_sw_init;
 	
 	/* ... */
+
+	// Настройка наблюдателя
+	INIT_WORK(&adapter->reset_task, igb_reset_task);
+	INIT_WORK(&adapter->watchdog_task, igb_watchdog_task);
+	
+	/* ... */
+
+	// Установка новых настроек интерфейса
+	igb_reset(adapter);
+
+	/* ... */
+
+	// Получение прямого доступа к управлению интерфейсом
+	igb_get_hw_control(adapter);
+
+	// Регистрация интерфейса в сетевой части ядра
+	strscpy(netdev->name, "eth%d", IFNAMSIZ);
+	err = register_netdev(netdev);
+	if (err)
+		goto err_register;
+
+	/* ... */
+
+	// Инициализация технологии DCA
+#ifdef IGB_DCA
+	if (dca_add_requester(&pdev->dev) == E1000_SUCCESS) {
+		adapter->flags |= IGB_FLAG_DCA_ENABLED;
+		dev_info(pci_dev_to_dev(pdev), "DCA enabled\n");
+		igb_setup_dca(adapter);
+	}
+#endif
+
+	/* ... */
+
 }
 ```
 
-Далее с помощью функций из структур `net_device_ops` и `ethtool_ops` происходит настройка сетевого интерфейса из пространства пользователя.
+Далее с помощью функций из структур `net_device_ops` и `ethtool_ops` происходит настройка сетевого интерфейса из пространства пользователя. Так при выполнении команды `ip link set up` выполняется функция `igb_open` (`net_device_ops.ndo_open`). Она выполняет следующее:
 
-При окончании работы сетевого драйвера для каждого интерфейса вызывается функция `igb_remove` (`igb_driver.remove`). Её выполнение состоит из следующих шагов:
-
-1. ...
-2. ...
-3. ...
+1. Получение настроек устройства;
+2. Отключение несущей, чтобы исключить параллельную работу интерфейса;
+3. Создание колец отправки и получения пакетов;
+4. Включение несущей;
+5. Инициализация и настройка различных параметров интерфейса;
+6. Установка количества очередей отправки и получения пакетов;
+7. Перевод интерфейса в включенное состояние;
+8. Включение NAPI для каждой очереди;
+9. Включение прерываний;
+10. Включение возжности отправки пакетов;
+11. Запуск наблюдателя.
 
 ```c
+// src/igb_main.c
+// Пример запуска интерфейса
+static int __igb_open(struct net_device *netdev, bool resuming)
+{
+	// Получение настроек устройства
+	struct igb_adapter *adapter = netdev_priv(netdev);
+	struct e1000_hw *hw = &adapter->hw;
+
+	/* ... */
+
+	// Отключение несущей
+	netif_carrier_off(netdev);
+
+	// Создание колец отправки пакетов
+	err = igb_setup_all_tx_resources(adapter);
+	if (err)
+		goto err_setup_tx;
+
+	// Создание колец получения пакетов
+	err = igb_setup_all_rx_resources(adapter);
+	if (err)
+		goto err_setup_rx;
+
+	// Включение несущей
+	igb_power_up_link(adapter);
+
+	// Инициализация и настройка различных параметров интерфейса
+	igb_configure(adapter);
+
+	// Настройка прерывааний
+	err = igb_request_irq(adapter);
+	if (err)
+		goto err_req_irq;
+
+	// Установка количества очередей отправки пакетов
+	netif_set_real_num_tx_queues(netdev,
+				     adapter->vmdq_pools ? 1 :
+				     adapter->num_tx_queues);
+
+	// Установка количества очередей получения пакетов
+	err = netif_set_real_num_rx_queues(netdev,
+					   adapter->vmdq_pools ? 1 :
+					   adapter->num_rx_queues);
+	if (err)
+		goto err_set_queues;
+
+	// Перевод интерфейса в включенное состояние
+	clear_bit(__IGB_DOWN, adapter->state);
+
+	// Включение NAPI для каждой очереди
+	for (i = 0; i < adapter->num_q_vectors; i++)
+		napi_enable(&(adapter->q_vector[i]->napi));
+	igb_configure_lli(adapter);
+
+	/* ... */
+
+	// Включение прерываний
+	igb_irq_enable(adapter);
+
+	/* ... */
+
+	// Включение возжности отправки пакетов
+	netif_tx_start_all_queues(netdev);
+
+	/* ... */
+
+	// Запуск наблюдателя
+	hw->mac.get_link_status = 1;
+	schedule_work(&adapter->watchdog_task);
+
+	return E1000_SUCCESS;
+
+	/* ... */
+
+}
+
+int igb_open(struct net_device *netdev)
+{
+	return __igb_open(netdev, false);
+}
 ```
 
-Далее рассмотрим технологии, которые применяются при работе сетевой карты.
+Cоответсвенно при выполнении команды `ip link set down` будет вызвана функция `igb_close` (`net_device_ops.ndo_close`), которая выполнит следующее:
 
-#### DMA
+1. Получение настроек устройства;
+2. Переключение устройства в состояние DOWN;
+3. Отключение несущей;
+4. Остановка отправки пакетов;
+5. Отключение NAPI;
+6. Отключение прерываний;
+7. Обновдение статистики интерфейса;
+8. Обновление настроек;
+9. Очистка колец отправки и приема пакетов;
+10. Освобождение прямого управления устройством;
+11. Освобождения памяти дли прерываний;
+12. Освобождение памяти для колец отправки и получения пакетов.
 
-DMA (Direct Memory Access) — это технология, позволяющая устройствам ввода/вывода читать и записывать данные в оперативную память напрямую, без участия центрального процессора (CPU).
+```c
+// src/igb_main.c
+// Пример выключения интерфейса
+void igb_down(struct igb_adapter *adapter)
+{
+	/* ... */
 
-Для настройки работы DMA используются функции «dma_set_mask», которая настраивает маску для потоковых DMA-операций (одиночные передачи), «dma_set_coherent_mask», которая настраивает маску для когерентных DMA-операций (постоянные отображения памяти), или «dma_set_mask_and_coherent», которая настраивает маску и для потоковых, и для когерентных DMA-операций [8].
+	// Переключение устройства в состояние DOWN	
+	set_bit(__IGB_DOWN, adapter->state);
 
-(Описать картинку отображения памяти).
+	/* ... */
 
-### NAPI
+	// Отключение несущей
+	netif_carrier_off(netdev);
+	// Остановка отправки пакетов
+	netif_tx_stop_all_queues(netdev);
 
+	/* ... */
 
-(Устройства на шине PCI [2])
-(Драйверы: сетевой интерфейс [2])
-(Из исходного кода/module_deinit)
+	// Отключение NAPI
+	for (i = 0; i < num_q_vectors; i++)
+		napi_disable(&(adapter->q_vector[i]->napi));
+
+	// Отключение прерываний
+	igb_irq_disable(adapter);
+
+	/* ... */
+
+	// Обновдение статистики интерфейса
+	igb_update_stats(adapter);
+
+	adapter->link_speed = 0;
+	adapter->link_duplex = 0;
+
+	/* ... */
+
+	// Обновление настроек
+	igb_reset(adapter);
+
+	/* ... */
+
+	// Очистка колец отправки и приема пакетов
+	igb_clean_all_tx_rings(adapter);
+	igb_clean_all_rx_rings(adapter);
+
+#ifdef IGB_DCA
+	// Обновление DCA
+	igb_setup_dca(adapter);
+#endif
+}
+
+static int __igb_close(struct net_device *netdev, bool suspending)
+{
+	// Получение настроек устройства
+	struct igb_adapter *adapter = netdev_priv(netdev);
+#ifdef CONFIG_PM_RUNTIME
+	struct pci_dev *pdev = adapter->pdev;
+#endif /* CONFIG_PM_RUNTIME */
+
+	/* ... */
+
+	igb_down(adapter);
+
+	// Освобождение прямого управления устройством
+	igb_release_hw_control(adapter);
+
+	// Освобождения памяти дли прерываний
+	igb_free_irq(adapter);
+
+	/* ... */
+
+	// Освобождение памяти для колец отправки и получения пакетов
+	igb_free_all_tx_resources(adapter);
+	igb_free_all_rx_resources(adapter);
+
+	/* ... */
+
+	return 0;
+}
+
+int igb_close(struct net_device *netdev)
+{
+	return __igb_close(netdev, false);
+}
+```
+
+При завершении работы сетевого драйвера для каждого интерфейса вызывается функция `igb_remove` (`igb_driver.remove`), которая освобождает управление сетевым интерфейсом. Её выполнение состоит из следующих шагов:
+
+1. Переключение устройства в состояние DOWN;
+2. Отключение наблюдателя;
+3. Отключение технологии DCA;
+4. Отключение прямого управления устройством;
+5. Удаление интерфейса из сетевой части ядра;
+6. Освобождение используемых прерываний;
+7. Освободение PCI-устройства.
+
+```c
+// src/igb_main.c
+// Пример удаления устройства
+static void igb_remove(struct pci_dev *pdev)
+{
+	struct net_device *netdev = pci_get_drvdata(pdev);
+	struct igb_adapter *adapter = netdev_priv(netdev);
+	struct e1000_hw *hw = &adapter->hw;
+
+	/* ... */
+
+	// Переключение устройства в состояние DOWN
+	set_bit(__IGB_DOWN, adapter->state);
+	// Отключение наблюдателя
+	del_timer_sync(&adapter->watchdog_timer);
+	if (adapter->flags & IGB_FLAG_DETECT_BAD_DMA)
+		del_timer_sync(&adapter->dma_err_timer);
+	del_timer_sync(&adapter->phy_info_timer);
+
+	cancel_work_sync(&adapter->reset_task);
+	cancel_work_sync(&adapter->watchdog_task);
+Отключение технологии DCA
+	// Отключение технологии DCA
+#ifdef IGB_DCA
+	if (adapter->flags & IGB_FLAG_DCA_ENABLED) {
+		dev_info(pci_dev_to_dev(pdev), "DCA disabled\n");
+		dca_remove_requester(&pdev->dev);
+		adapter->flags &= ~IGB_FLAG_DCA_ENABLED;
+		E1000_WRITE_REG(hw, E1000_DCA_CTRL, E1000_DCA_CTRL_DCA_DISABLE);
+	}
+#endif
+
+	/* ... */
+
+	// Отключение прямого управления устройством
+	igb_release_hw_control(adapter);
+
+	// Удаление интерфейса из сетевой части ядра
+	unregister_netdev(netdev);
+
+	// Освобождение используемых прерываний
+	igb_clear_interrupt_scheme(adapter);
+
+	/* ... */
+
+	// Освобождение используемой памяти
+	pci_release_selected_regions(pdev,
+				     pci_select_bars(pdev, IORESOURCE_MEM));
+
+	/* ... */
+
+	kfree(adapter->mac_table);
+	kfree(adapter->shadow_vfta);
+	free_netdev(netdev);
+
+	/* ... */
+
+	// Освободение PCI-устройства
+	pci_disable_device(pdev);
+}
+```
 
 ### Получение сетевых пакетов
 
@@ -302,7 +615,7 @@ DMA (Direct Memory Access) — это технология, позволяюща
 ## Полезные материалы
 
 - [Стандарт ISO/IEC 7498](https://ecma-international.org/wp-content/uploads/s020269e.pdf) или [ГОСТ Р ИСО/МЭК 7498-1-99](https://internet-law.ru/gosts/gost/4269/).
-- [How To Write Linux PCI Drivers](https://github.com/torvalds/linux/blob/master/Documentation/PCI/pci.rst)
+- [How To Write Linux PCI Drivers](https://www.kernel.org/doc/html/latest/PCI/pci.html)
 
 ## Источники
 
@@ -312,8 +625,9 @@ DMA (Direct Memory Access) — это технология, позволяюща
 4. [Документация ядра «Linux» о модуле «BTRFS»](https://www.kernel.org/doc/html/latest/filesystems/btrfs.html)
 5. [Документация ядра «Linux» о модуле «KVM»](https://www.kernel.org/doc/html/latest/virt/kvm/api.html)
 6. [Документация ядра «Linux» о работе с PCI](https://www.kernel.org/doc/html/next/driver-api/pci/pci.html)
-7. [Документация ядра «Linux» о работе с сетевыми интерфейсами](https://www.kernel.org/doc/html/latest/networking/kapi.html)
-8. [Документация ядра «Linux» о работе c NAPI](https://www.kernel.org/doc/html/latest/networking/napi.html)
-9. [Документация ядра «Linux» о работе с DMA](https://www.kernel.org/doc/html/latest/core-api/dma-api-howto.html)
-10. 
+7. [Документация ядра «Linux» о работе с DMA](https://www.kernel.org/doc/html/latest/core-api/dma-api-howto.html)
+8. [Документация ядра «Linux» о работе с сетевыми интерфейсами](https://www.kernel.org/doc/html/latest/networking/kapi.html)
+9. [Документация ядра «Linux» о работе c NAPI](https://www.kernel.org/doc/html/latest/networking/napi.html)
+10. Ram Huggahalli, Ravi Iyer, Scott Tetrick. Direct Cache Access for High Bandwidth Network I/O - 2005
+1.  
 
