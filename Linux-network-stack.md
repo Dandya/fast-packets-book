@@ -557,7 +557,7 @@ static void igb_remove(struct pci_dev *pdev)
 
 	cancel_work_sync(&adapter->reset_task);
 	cancel_work_sync(&adapter->watchdog_task);
-Отключение технологии DCA
+
 	// Отключение технологии DCA
 #ifdef IGB_DCA
 	if (adapter->flags & IGB_FLAG_DCA_ENABLED) {
