@@ -50,20 +50,18 @@
 
 #### DMA
 
-DMA (Direct Memory Access) — это технология, позволяющая устройствам ввода/вывода читать и записывать данные в оперативную память напрямую, без участия центрального процессора (CPU).
+DMA (Direct Memory Access) — это технология, позволяющая устройствам ввода/вывода читать и записывать данные в оперативную память напрямую, без участия центрального процессора (CPU) [6].
 
 
-![DMA](images/DMA.drawio.png)
+![DMA](images/DMA.png)
 
+На рисунке показана схема отображения памяти при использовании DMA [6]. Процесс выглядит так:
 
-Для настройки работы DMA используют маску, которая отражает количество разрядов памяти, поддерживаемых устройством. К тому же операции прямого доступа к памяти могут быть синхронными (когерентными) или асинхроннными (потоковыми). В случае синхронных операций чтение и запись в память происходит синхронно для устройства и процессора, тогда как для асинхроннных операций действия с памятью происходять независимо. 
+1. Считывание адреса шины A из шины памяти устройства и преобразование его в физический адрес процессора B (хранится в `struct resource`);
+2. Сопоставление физического адреса B с виртуальным адресом C с помощью функции `ioremap`;
+3. Использование функций чтения и записи (например, ioread32(C) или iowrite32(C) [7]) для доступа к регистрам устройства по адресу шины A.
 
-Отображение памяти используются функции `dma_set_mask`, которая настраивает маску для потоковых DMA-операций (одиночные передачи), `dma_set_coherent_mask`, которая настраивает маску для когерентных DMA-операций (постоянные отображения памяти), или `dma_set_mask_and_coherent`, которая настраивает маску и для потоковых, и для когерентных DMA-операций [7].
-
-Схема работы технологии DMA следующая:
-
-
-(Описать картинку отображения памяти).
+Работу DMA определяет маска, которая отражает количество разрядов памяти, поддерживаемых устройством, а также тип операции: синхронный (когерентный) или асинхроннный (потоковый). В случае синхронных операций чтение и запись в память происходит синхронно для устройства и процессора, тогда как для асинхроннных операций действия с памятью происходять независимо. Для настройки DMA используются функции `dma_set_mask`, которая настраивает маску для асинхроннных операций, `dma_set_coherent_mask`, которая настраивает маску для синхронных операций, или `dma_set_mask_and_coherent`, которая настраивает маску сразу для обоих операций [6].
 
 #### DCA
 
@@ -633,10 +631,11 @@ static void igb_remove(struct pci_dev *pdev)
 3. [Документация ядра «Linux» о модуле «IGB»](https://www.kernel.org/doc/html/latest/networking/device_drivers/ethernet/intel/igb.html)
 4. [Документация ядра «Linux» о модуле «BTRFS»](https://www.kernel.org/doc/html/latest/filesystems/btrfs.html)
 5. [Документация ядра «Linux» о модуле «KVM»](https://www.kernel.org/doc/html/latest/virt/kvm/api.html)
-6. [Документация ядра «Linux» о работе с PCI](https://www.kernel.org/doc/html/next/driver-api/pci/pci.html)
-7. [Документация ядра «Linux» о работе с DMA](https://www.kernel.org/doc/html/latest/core-api/dma-api-howto.html)
-8. [Документация ядра «Linux» о работе с сетевыми интерфейсами](https://www.kernel.org/doc/html/latest/networking/kapi.html)
-9. [Документация ядра «Linux» о работе c NAPI](https://www.kernel.org/doc/html/latest/networking/napi.html)
-10. Ram Huggahalli, Ravi Iyer, Scott Tetrick. Direct Cache Access for High Bandwidth Network I/O - 2005
-1.  
+6. [Документация ядра «Linux» о работе с DMA](https://www.kernel.org/doc/html/latest/core-api/dma-api-howto.html)
+7. [Документация ядра «Linux» о функциях работы с памятью устройств](https://www.kernel.org/doc/html/next/driver-api/device-io.html)
+8. [Документация ядра «Linux» о работе с PCI](https://www.kernel.org/doc/html/next/driver-api/pci/pci.html)
+9. [Документация ядра «Linux» о работе с сетевыми интерфейсами](https://www.kernel.org/doc/html/latest/networking/kapi.html)
+10. [Документация ядра «Linux» о работе c NAPI](https://www.kernel.org/doc/html/latest/networking/napi.html)
+11. Ram Huggahalli, Ravi Iyer, Scott Tetrick. Direct Cache Access for High Bandwidth Network I/O - 2005
+12. 
 
