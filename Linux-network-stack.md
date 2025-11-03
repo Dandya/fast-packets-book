@@ -65,6 +65,19 @@ DMA (Direct Memory Access) — это технология, позволяюща
 
 #### DCA
 
+Технология DCA (Direct Cache Access) является развитием технологии DMA, так как её целью является ускорение операций работы с памятью. Для работы требуется три структуры данных, которые содержат: состояние, дескрипторы и полезную нагрузку. Они выделяются из физической памяти и кэшируются в кэш-памяти процессора [8].
+
+Принцип работы следующий [8]:
+
+1. Связующим звеном для чтения и записи в кэш-память процессора является микрочип, присутствующий на устройстве;
+2. При записи данных строка байт в кэш-памяти становится недействительной и записывается в память устройства;
+3. При чтении данных строка в кэш-памяти становится недействительной и заменяется на новую.
+
+DCA имеет два преимущества:
+
+1. Cнижение средней задержки работы с энергозависимой памятью;
+2. Снижениютребований к пропускной способности энергозависимой памяти.
+
 ### Кольцевые очереди
 
 ### SoftIRQ
@@ -633,9 +646,10 @@ static void igb_remove(struct pci_dev *pdev)
 5. [Документация ядра «Linux» о модуле «KVM»](https://www.kernel.org/doc/html/latest/virt/kvm/api.html)
 6. [Документация ядра «Linux» о работе с DMA](https://www.kernel.org/doc/html/latest/core-api/dma-api-howto.html)
 7. [Документация ядра «Linux» о функциях работы с памятью устройств](https://www.kernel.org/doc/html/next/driver-api/device-io.html)
-8. [Документация ядра «Linux» о работе с PCI](https://www.kernel.org/doc/html/next/driver-api/pci/pci.html)
-9. [Документация ядра «Linux» о работе с сетевыми интерфейсами](https://www.kernel.org/doc/html/latest/networking/kapi.html)
-10. [Документация ядра «Linux» о работе c NAPI](https://www.kernel.org/doc/html/latest/networking/napi.html)
-11. Ram Huggahalli, Ravi Iyer, Scott Tetrick. Direct Cache Access for High Bandwidth Network I/O - 2005
+8. Ram Huggahalli, Ravi Iyer, Scott Tetrick. Direct Cache Access for High Bandwidth Network I/O - 2005
+9. [Документация ядра «Linux» о работе с PCI](https://www.kernel.org/doc/html/next/driver-api/pci/pci.html)
+10. [Документация ядра «Linux» о работе с сетевыми интерфейсами](https://www.kernel.org/doc/html/latest/networking/kapi.html)
+11. [Документация ядра «Linux» о работе c NAPI](https://www.kernel.org/doc/html/latest/networking/napi.html)
 12. 
+13. 
 
