@@ -76,20 +76,21 @@ DCA имеет два преимущества:
 1. Cнижение средней задержки работы с энергозависимой памятью;
 2. Снижениютребований к пропускной способности энергозависимой памяти.
 
-### SoftIRQ
+#### SoftIRQ
 
-Одним из принципов разработки драйверов является то, что обработка прерывания должна занимать как можно меньшее время. Но обработать большое количество сетевого трафика за небольшое время является невозможным. Поэтому была придумана технология «SoftIRQ». Принцип работы заключается в том, чтобы перенести долгую обработку данных из контекса прерывания в контекст потока ядра. Отложенная обработка происходит либо по таймеру за потоков ядра (по одному на каждый логический процессор), либо при окончании системного вызова [9]. 
+Одним из принципов разработки драйверов является то, что обработка прерывания должна занимать как можно меньшее время, так как при длительной обработке повышается шанс пропустить следующее прерывание. Но обработать большое количество сетевого трафика за небольшое время является невозможным. Поэтому была придумана технология «SoftIRQ». Принцип работы заключается в том, чтобы перенести долгую обработку данных из контекса прерывания в контекст потока ядра. Отложенная обработка происходит либо по таймеру за потоков ядра (по одному на каждый логический процессор), либо при окончании системного вызова [9].
 
-### NAPI
+За выполнение обработки прерываний отвечают потоки ядра с названиями `ksoftirqd/N`, где `N` — это номер логического процессора, прерывания которого обрабатываются этим потоком. Также статистику по работе этих потоков можно изучить через файл `/proc/softirqs`.
 
-NAPI — это технология обработки событий, используемая сетевым стеком Linux. В её основе лежит функция `napi_poll`, которая проверяет наличие пакетов и обрабатывает их.
+#### NAPI
 
-Регистрация и удаление NAPI в драйвере происходит с помощью функций `netif_napi_add` и `netif_napi_del` соответственно. После этого возможность запуска функции `napi_poll` (функции опроса) регулируется функциями `napi_enable` и `napi_disable`. Функция `napi_poll` может быть вызвана по следующим причинам:
+NAPI — это технология обработки событий, используемая сетевым стеком Linux. В её основе лежит идея получения пакетов набором с помощью функции опроса `napi_poll`, которая проверяет наличие пакетов и обрабатывает их. Технология была создана для увеличения пропускной способности сетевых интерфейсов, так как обработка прерываний для каждого отдельного пакета при высокой скорости трафика создаёт много лишних накладных расходов.
+
+Регистрация и удаление NAPI в драйвере происходит с помощью функций `netif_napi_add` и `netif_napi_del` соответственно. После этого возможность запуска функции `napi_poll` регулируется функциями `napi_enable` и `napi_disable`. Функция `napi_poll` может быть вызвана по следующим причинам:
 
 1. Аппаратное прерывание;
 2. Таймер;
 3. Системное вызов (например, epoll).
-
 
 ### Установка и удаление
 
@@ -233,7 +234,7 @@ static int igb_probe(struct pci_dev *pdev,
 	err = pci_enable_device_mem(pdev);
 	if (err)
 		return err;
-	
+
 	// Установка маски DMA
 	err = dma_set_mask(pci_dev_to_dev(pdev), DMA_BIT_MASK(64));
 	if (!err) {
@@ -253,9 +254,9 @@ static int igb_probe(struct pci_dev *pdev,
 			}
 		}
 	}
-	
+
 	/* ... */
-	
+
 	// Резервирование участков памяти
 	err = pci_request_selected_regions(pdev,
 					  pci_select_bars(pdev,
@@ -265,12 +266,12 @@ static int igb_probe(struct pci_dev *pdev,
 		goto err_pci_reg;
 
 	/* ... */
-	
+
 	// Захват шины PCI для управления устройством
 	pci_set_master(pdev);
 
 	/* ... */
-	
+
 	// Создание и заполнение структуры net_device для регистрации сетевого интерфейса
 	netdev = alloc_etherdev_mq(sizeof(struct igb_adapter),
 				   IGB_MAX_TX_QUEUES);
@@ -302,7 +303,7 @@ static int igb_probe(struct pci_dev *pdev,
 	igb_set_ethtool_ops(netdev);
 
 	/* ... */
-	
+
 	// Настройка прерываний и подсистемы NAPI
 	// igb_sw_init вызывает igb_init_interrupt_scheme
 	// igb_init_interrupt_scheme вызывает igb_alloc_q_vectors
@@ -311,13 +312,13 @@ static int igb_probe(struct pci_dev *pdev,
 	err = igb_sw_init(adapter);
 	if (err)
 		goto err_sw_init;
-	
+
 	/* ... */
 
 	// Настройка наблюдателя
 	INIT_WORK(&adapter->reset_task, igb_reset_task);
 	INIT_WORK(&adapter->watchdog_task, igb_watchdog_task);
-	
+
 	/* ... */
 
 	// Установка новых настроек интерфейса
@@ -417,7 +418,6 @@ static int __igb_open(struct net_device *netdev, bool resuming)
 	// Включение NAPI для каждой очереди
 	for (i = 0; i < adapter->num_q_vectors; i++)
 		napi_enable(&(adapter->q_vector[i]->napi));
-	igb_configure_lli(adapter);
 
 	/* ... */
 
@@ -469,7 +469,7 @@ void igb_down(struct igb_adapter *adapter)
 {
 	/* ... */
 
-	// Переключение устройства в состояние DOWN	
+	// Переключение устройства в состояние DOWN
 	set_bit(__IGB_DOWN, adapter->state);
 
 	/* ... */
@@ -622,6 +622,338 @@ static void igb_remove(struct pci_dev *pdev)
 
 ### Получение сетевых пакетов
 
+Рассмотрим процесс получения сетевых пакетов от работы сетевой карты до передачи их в сетевому стеку ядра Linux.
+
+#### Работа сетевой карты
+
+Основной задачей сетевой карты является запись пришедшего на интерфейс пакета в участок памяти, доступный процессору через технологию DMA, и уведомление об этом через аппаратное прерывание. Но текущие скорости передачи данных не позволяют генерировать прерывание для каждого полученного пакета из-за больших накладных расходов. Процесс получения пакета выглядит следующим образом:
+
+1. При поступлении первого пакета набора инициируется аппаратное прерывание;
+2. Дальнейшие аппаратные прерывания для получения пакетов отключаются обработчиком прерываний в драйвере и сетевая карта только записывает полученные пакеты в соответствующий кольцевой буфер;
+3. При возобновлении возможности отправки аппаратных прерываний выполняется снова первый шаг.
+
+#### Работа драйвера
+
+При возникновении прерывания выполняется функция `igb_msix_ring` (по-умолчанию, драйвер выбирает MSIX прерывание), которая указывает на выполнение функции `napi_poll` обработчиком `ksoftirqd/N` с помощью функции `napi_schedule` [11].
+
+```c
+// src/igb_main.c
+// ITR — Interrupt Throttling Rate
+static void igb_write_itr(struct igb_q_vector *q_vector)
+{
+	/* .. */
+	// Отключение аппаратных прерываний при получении пакета
+	q_vector->set_itr = 0;
+}
+
+// Пример функции обработки прерывания MSIX.
+static irqreturn_t igb_msix_ring(int irq, void *data)
+{
+	struct igb_q_vector *q_vector = data;
+
+	igb_write_itr(q_vector);
+
+	napi_schedule(&q_vector->napi);
+
+	return IRQ_HANDLED;
+}
+```
+
+Функция `napi_poll` задается при включеннии сетевого интерфейса. В драйвере «IGB» это происходит в функции `igb_alloc_q_vector`.
+
+```c
+// src/igb_main.c
+// Пример установки функции napi_poll
+static int igb_alloc_q_vector(struct igb_adapter *adapter,
+			      unsigned int v_count, unsigned int v_idx,
+			      unsigned int txr_count, unsigned int txr_idx,
+			      unsigned int rxr_count, unsigned int rxr_idx)
+{
+	/* ... */
+
+	// Функцией napi_poll будет являться igb_poll
+	netif_napi_add(adapter->netdev, &q_vector->napi,
+		       igb_poll);
+
+	/* ... */
+}
+```
+
+Функция `igb_poll` выполняет не только приём пакетов, но и освобождение дескрипторов отправленных пакетов. Одним из параметров функции является число пакетов, которые могут быть прочитаны и обработаны за один вызов опроса. Такое число называется «бюджетом» и существует для того, чтобы функция при большом количестве пакетов имела предсказуемое время выполнения и делилась процессорным временем с обработчиками других прерываний.
+
+```c
+// src/igb_main.c
+// Пример функции опроса
+static int igb_poll(struct napi_struct *napi, int budget)
+{
+	struct igb_q_vector *q_vector = container_of(napi,
+						     struct igb_q_vector, napi);
+	bool clean_complete = true;
+
+	/* ... */
+
+	// Очистка дескрипторов отправленных пакетов
+	if (q_vector->tx.ring)
+		clean_complete = igb_clean_tx_irq(q_vector);
+
+	// Чтение полученных пакетов и отправка из верх по стеку
+	if (q_vector->rx.ring)
+		clean_complete &= igb_clean_rx_irq(q_vector, budget);
+
+	/* ... */
+
+	if (!clean_complete)
+		return budget;
+
+	napi_complete(napi);
+	igb_ring_irq_enable(q_vector);
+
+	return 0;
+}
+```
+
+Чтение пакетов происходит в функции `igb_clean_rx_irq`. Передаваемая структура `igb_q_vector` содержит в себе кольцевые буферы для приема и отправки пакетов, а также номер логического процессора, который обработывает эти очереди. Вся работа по чтению полученных пакетов происходит параллельно и независимо от других потоков исполнения.
+
+Структура `sk_buff` является основой сетевого стека ядра «Linux». В стуктуре содержится не только сам пакет и его метаданные, такие как длина и время получения, но множество других данных: типы заголовков, контрольные суммы заголовков и тд.
+
+```c
+// src/igb_main.c
+// Пример функции обработки полученных пакетов
+static bool igb_clean_rx_irq(struct igb_q_vector *q_vector, int budget)
+{
+	struct igb_ring *rx_ring = q_vector->rx.ring;
+	struct sk_buff *skb = rx_ring->skb;
+	unsigned int total_bytes = 0, total_packets = 0;
+	// Получение количества прочитанных дескрипторов
+	u16 cleaned_count = igb_desc_unused(rx_ring);
+
+	do {
+		union e1000_adv_rx_desc *rx_desc;
+
+		// Возвращение устройству прочитанных буферов
+		if (cleaned_count >= IGB_RX_BUFFER_WRITE) {
+			igb_alloc_rx_buffers(rx_ring, cleaned_count);
+			cleaned_count = 0;
+		}
+
+		// Получение текущего дескриптора для чтения
+		rx_desc = IGB_RX_DESC(rx_ring, rx_ring->next_to_clean);
+
+		// Проверка на наличие ошибок
+		if (!igb_test_staterr(rx_desc, E1000_RXD_STAT_DD))
+			break;
+
+		// Вызов этой функции гарантирует, что все операции чтения
+		// из оперативной памяти будут выполнены до действий
+		// после этой функции
+		rmb();
+
+		// Чтение пакета по его дескриптору в sk_buff буфер
+		skb = igb_fetch_rx_buffer(rx_ring, rx_desc, skb);
+
+		if (!skb)
+			break;
+
+		cleaned_count++;
+
+		// Проверка того, что был записан в буфер пакет не полностью
+		if (igb_is_non_eop(rx_ring, rx_desc))
+			continue;
+
+		// Проверка ошибок в ethernet заголовке и
+		// дополнение до 60 байт в случае необходимости
+		if (igb_cleanup_headers(rx_ring, rx_desc, skb)) {
+			skb = NULL;
+			continue;
+		}
+
+		// Для статистики
+		total_bytes += skb->len;
+
+		// Проверка контрольных сумм заголовков
+		igb_process_skb_fields(rx_ring, rx_desc, skb);
+
+#ifndef IGB_NO_LRO
+		// Объединение нескольких TCP пакетов в один
+		if (igb_can_lro(rx_ring, rx_desc, skb))
+			igb_lro_receive(q_vector, skb);
+		else
+#endif
+		// Выполнение GRO, что аналогично LRO, но используется
+		// сетевой стек ядра, а также передача sk_buff вверх по
+		// стеку ядра
+#ifdef HAVE_VLAN_RX_REGISTER
+			igb_receive_skb(q_vector, skb);
+#else
+			napi_gro_receive(&q_vector->napi, skb);
+#endif
+#ifndef NETIF_F_GRO
+		netdev_ring(rx_ring)->last_rx = jiffies;
+#endif
+
+		skb = NULL;
+
+		// Для статистики
+		total_packets++;
+
+		// Когда бюджет исчерпан чтение заканчивается
+	} while (likely(total_packets < budget));
+
+	// Если пакет не был полностью прочитан, то
+	// он сохраняется до следующего чтения
+	rx_ring->skb = skb;
+
+	// Обновление статистики очереди
+	rx_ring->rx_stats.packets += total_packets;
+	rx_ring->rx_stats.bytes += total_bytes;
+	q_vector->rx.total_packets += total_packets;
+	q_vector->rx.total_bytes += total_bytes;
+
+	// Освобождение прочитанных буферов
+	if (cleaned_count)
+		igb_alloc_rx_buffers(rx_ring, cleaned_count);
+
+	/* ... */
+
+	return (total_packets < budget);
+}
+```
+
+Рассмотрим теперь сам процесс заполнения структуры `sk_buff`. Его чтение происходит в функции `igb_fetch_rx_buffer`, в которой
+
+```c
+// src/igb_main.c
+// Пример чтения пакета из кольцевого буфера
+
+// Функция копирования пакета в sk_buff
+static bool igb_add_rx_frag(struct igb_ring *rx_ring,
+			    struct igb_rx_buffer *rx_buffer,
+			    union e1000_adv_rx_desc *rx_desc,
+			    struct sk_buff *skb)
+{
+	struct page *page = rx_buffer->page;
+	// Указатель на полученный пакет
+	unsigned char *va = page_address(page) + rx_buffer->page_offset;
+	// Размер пакета
+	unsigned int size = le16_to_cpu(rx_desc->wb.upper.length);
+	// Определяется размер буфера
+#if (PAGE_SIZE < 8192)
+	unsigned int truesize = IGB_RX_BUFSZ;
+#else
+	unsigned int truesize = SKB_DATA_ALIGN(size);
+#endif
+	// Длина заголовка канального уровня
+	unsigned int pull_len;
+
+	// Если пакет был записан в нескольких дескрипторах,
+	// то добавляем в конец sk_buff данные
+	if (unlikely(skb_is_nonlinear(skb)))
+		goto add_tail_frag;
+
+	/* ... */
+
+	// Копирование пакета в sk_buff, если пакет маленький
+	if (likely(size <= IGB_RX_HDR_LEN)) {
+		memcpy(__skb_put(skb, size), va, ALIGN(size, sizeof(long)));
+
+		// Проверка возможности дальнейшего использовая текущей
+		// страницы памяти
+		if (likely(page_to_nid(page) == numa_node_id()))
+			return true;
+
+		// Уменьшение счётчика использования страницы
+		put_page(page);
+		return false;
+	}
+
+	// Получение длины заголовка Ethernet
+	pull_len = eth_get_headlen(skb->dev, va, IGB_RX_HDR_LEN);
+
+	// Копирование заголовка Ethernet в sk_buff
+	memcpy(__skb_put(skb, pull_len), va, ALIGN(pull_len, sizeof(long)));
+
+	va += pull_len;
+	size -= pull_len;
+
+add_tail_frag:
+	// Заполнение структуры sk_buff
+	skb_add_rx_frag(skb, skb_shinfo(skb)->nr_frags, page,
+			(unsigned long)va & ~PAGE_MASK, size, truesize);
+
+	// Проверка возможности дальнейшего использовая текущей
+	// страницы памяти (есть ли ещё пакеты в странице)
+	return igb_can_reuse_rx_page(rx_buffer, page, truesize);
+}
+
+
+
+static struct sk_buff *igb_fetch_rx_buffer(struct igb_ring *rx_ring,
+					   union e1000_adv_rx_desc *rx_desc,
+					   struct sk_buff *skb)
+{
+	struct igb_rx_buffer *rx_buffer;
+	struct page *page;
+
+	rx_buffer = &rx_ring->rx_buffer_info[rx_ring->next_to_clean];
+
+	page = rx_buffer->page;
+	prefetchw(page);
+
+	if (likely(!skb)) {
+		void *page_addr = page_address(page) +
+				  rx_buffer->page_offset;
+
+		/* prefetch first cache line of first page */
+		prefetch(page_addr);
+#if L1_CACHE_BYTES < 128
+		prefetch(page_addr + L1_CACHE_BYTES);
+#endif
+
+		/* allocate a skb to store the frags */
+		skb = netdev_alloc_skb_ip_align(rx_ring->netdev,
+						IGB_RX_HDR_LEN);
+		if (unlikely(!skb)) {
+			rx_ring->rx_stats.alloc_failed++;
+			return NULL;
+		}
+
+		/*
+		 * we will be copying header into skb->data in
+		 * pskb_may_pull so it is in our interest to prefetch
+		 * it now to avoid a possible cache miss
+		 */
+		prefetchw(skb->data);
+	}
+
+	/* we are reusing so sync this buffer for CPU use */
+	dma_sync_single_range_for_cpu(rx_ring->dev,
+				      rx_buffer->dma,
+				      rx_buffer->page_offset,
+				      IGB_RX_BUFSZ,
+				      DMA_FROM_DEVICE);
+
+	/* pull page into skb */
+	if (igb_add_rx_frag(rx_ring, rx_buffer, rx_desc, skb)) {
+		/* hand second half of page back to the ring */
+		igb_reuse_rx_page(rx_ring, rx_buffer);
+	} else {
+		/* we are not reusing the buffer so unmap it */
+		dma_unmap_page(rx_ring->dev, rx_buffer->dma,
+			       PAGE_SIZE, DMA_FROM_DEVICE);
+	}
+
+	/* clear contents of rx_buffer */
+	rx_buffer->page = NULL;
+
+	return skb;
+}
+```
+
+Также стоит уточнить, что в драйверах с большей пропускной способностью перед заполнением структуры `sk_buff` происходит заполнение структуры `xdp_buff`, но не происходит копирования пакета, что позволяет с помощью технологии «EBPF» перенаправлять трафик, исключая лишнее копирование пакетов в структуру `sk_buff`.
+
+
+#### Работа сетевого стека
+
 (https://blog.packagecloud.io/monitoring-tuning-linux-networking-stack-receiving-data/)
 (https://habr.com/ru/companies/vk/articles/314168/)
 
@@ -638,6 +970,7 @@ static void igb_remove(struct pci_dev *pdev)
 
 - [Стандарт ISO/IEC 7498](https://ecma-international.org/wp-content/uploads/s020269e.pdf) или [ГОСТ Р ИСО/МЭК 7498-1-99](https://internet-law.ru/gosts/gost/4269/).
 - [How To Write Linux PCI Drivers](https://www.kernel.org/doc/html/latest/PCI/pci.html)
+- [Описание директории /proc](https://www.kernel.org/doc/html/latest/filesystems/proc.html)
 
 ## Источники
 
@@ -653,6 +986,6 @@ static void igb_remove(struct pci_dev *pdev)
 10. [Документация ядра «Linux» о работе с PCI](https://www.kernel.org/doc/html/next/driver-api/pci/pci.html)
 11. [Документация ядра «Linux» о работе с сетевыми интерфейсами](https://www.kernel.org/doc/html/latest/networking/kapi.html)
 12. [Документация ядра «Linux» о работе c NAPI](https://www.kernel.org/doc/html/latest/networking/napi.html)
-13. 
-14. 
+13.
+14.
 
