@@ -395,7 +395,7 @@ static int __igb_open(struct net_device *netdev, bool resuming)
 	// Инициализация и настройка различных параметров интерфейса
 	igb_configure(adapter);
 
-	// Настройка прерывааний
+	// Настройка прерываний
 	err = igb_request_irq(adapter);
 	if (err)
 		goto err_req_irq;
@@ -628,7 +628,7 @@ static void igb_remove(struct pci_dev *pdev)
 
 Основной задачей сетевой карты является запись пришедшего на интерфейс пакета в участок памяти, доступный процессору через технологию DMA, и уведомление об этом через аппаратное прерывание. Но текущие скорости передачи данных не позволяют генерировать прерывание для каждого полученного пакета из-за больших накладных расходов. Процесс получения пакета выглядит следующим образом:
 
-1. При поступлении первого пакета набора инициируется аппаратное прерывание;
+1. При поступлении первого пакета набора он записывается в оперативную память и инициируется аппаратное прерывание;
 2. Дальнейшие аппаратные прерывания для получения пакетов отключаются обработчиком прерываний в драйвере и сетевая карта только записывает полученные пакеты в соответствующий кольцевой буфер;
 3. При возобновлении возможности отправки аппаратных прерываний выполняется снова первый шаг.
 
@@ -706,6 +706,7 @@ static int igb_poll(struct napi_struct *napi, int budget)
 		return budget;
 
 	napi_complete(napi);
+	// Включение аппаратных прерываний 
 	igb_ring_irq_enable(q_vector);
 
 	return 0;
@@ -730,7 +731,8 @@ static bool igb_clean_rx_irq(struct igb_q_vector *q_vector, int budget)
 	do {
 		union e1000_adv_rx_desc *rx_desc;
 
-		// Возвращение устройству прочитанных буферов
+		// Выделение новых страниц памяти при необходимости
+		// и настройка DMA
 		if (cleaned_count >= IGB_RX_BUFFER_WRITE) {
 			igb_alloc_rx_buffers(rx_ring, cleaned_count);
 			cleaned_count = 0;
@@ -748,7 +750,7 @@ static bool igb_clean_rx_irq(struct igb_q_vector *q_vector, int budget)
 		// после этой функции
 		rmb();
 
-		// Чтение пакета по его дескриптору в sk_buff буфер
+		// Создание и заполнение структуры sk_buff
 		skb = igb_fetch_rx_buffer(rx_ring, rx_desc, skb);
 
 		if (!skb)
@@ -756,7 +758,8 @@ static bool igb_clean_rx_irq(struct igb_q_vector *q_vector, int budget)
 
 		cleaned_count++;
 
-		// Проверка того, что был записан в буфер пакет не полностью
+		// Проверка того, что структура sk_buff содержит
+		// пакет не полностью, и переход к следующему дескриптору
 		if (igb_is_non_eop(rx_ring, rx_desc))
 			continue;
 
@@ -809,7 +812,8 @@ static bool igb_clean_rx_irq(struct igb_q_vector *q_vector, int budget)
 	q_vector->rx.total_packets += total_packets;
 	q_vector->rx.total_bytes += total_bytes;
 
-	// Освобождение прочитанных буферов
+	// Выделение новых страниц памяти при необходимости
+	// и настройка DMA
 	if (cleaned_count)
 		igb_alloc_rx_buffers(rx_ring, cleaned_count);
 
@@ -819,13 +823,15 @@ static bool igb_clean_rx_irq(struct igb_q_vector *q_vector, int budget)
 }
 ```
 
-Рассмотрим теперь сам процесс заполнения структуры `sk_buff`. Его чтение происходит в функции `igb_fetch_rx_buffer`, в которой
+Рассмотрим теперь сам процесс создания структуры `sk_buff`. Это происходит в функции `igb_fetch_rx_buffer`, в которой для структуры выделяется память, а в функции `igb_add_rx_frag` в структуру копируется заголовок протокола «Ethernet» и либо копируется пакет полностью, если он менее 256 байт, либо добавляется указатель на данные пакета.
+
+Для обеспечения этого сетевая карта с помощью технологии DMA копирует пришедшие пакеты в буферы, которые выделяются драйвером и заменяются при обработке трафика. Таким образом, при работе драйвера пакеты копируются лишь однажды в общем случае.
 
 ```c
 // src/igb_main.c
-// Пример чтения пакета из кольцевого буфера
+// Пример заполнения структуры sk_buff
 
-// Функция копирования пакета в sk_buff
+// Функция заполнения структуры sk_buff
 static bool igb_add_rx_frag(struct igb_ring *rx_ring,
 			    struct igb_rx_buffer *rx_buffer,
 			    union e1000_adv_rx_desc *rx_desc,
@@ -845,14 +851,15 @@ static bool igb_add_rx_frag(struct igb_ring *rx_ring,
 	// Длина заголовка канального уровня
 	unsigned int pull_len;
 
-	// Если пакет был записан в нескольких дескрипторах,
-	// то добавляем в конец sk_buff данные
+	// Если пакет был записан в несколько дескрипторов,
+	// то просто добавляем в sk_buff данные
 	if (unlikely(skb_is_nonlinear(skb)))
 		goto add_tail_frag;
 
 	/* ... */
 
 	// Копирование пакета в sk_buff, если пакет маленький
+	// Меньше 256 байт
 	if (likely(size <= IGB_RX_HDR_LEN)) {
 		memcpy(__skb_put(skb, size), va, ALIGN(size, sizeof(long)));
 
@@ -876,7 +883,7 @@ static bool igb_add_rx_frag(struct igb_ring *rx_ring,
 	size -= pull_len;
 
 add_tail_frag:
-	// Заполнение структуры sk_buff
+	// Добавление указателя страницы и смещения до даных пакета в sk_buff
 	skb_add_rx_frag(skb, skb_shinfo(skb)->nr_frags, page,
 			(unsigned long)va & ~PAGE_MASK, size, truesize);
 
@@ -885,8 +892,9 @@ add_tail_frag:
 	return igb_can_reuse_rx_page(rx_buffer, page, truesize);
 }
 
+/* ... */
 
-
+// Пример функции создания и заполения структуры sk_buff
 static struct sk_buff *igb_fetch_rx_buffer(struct igb_ring *rx_ring,
 					   union e1000_adv_rx_desc *rx_desc,
 					   struct sk_buff *skb)
@@ -894,22 +902,23 @@ static struct sk_buff *igb_fetch_rx_buffer(struct igb_ring *rx_ring,
 	struct igb_rx_buffer *rx_buffer;
 	struct page *page;
 
+	// Получение буфера, содержащего пакеты
 	rx_buffer = &rx_ring->rx_buffer_info[rx_ring->next_to_clean];
 
 	page = rx_buffer->page;
+	// Передача данных страницы в кеш-память процессора
 	prefetchw(page);
 
 	if (likely(!skb)) {
 		void *page_addr = page_address(page) +
 				  rx_buffer->page_offset;
 
-		/* prefetch first cache line of first page */
 		prefetch(page_addr);
 #if L1_CACHE_BYTES < 128
 		prefetch(page_addr + L1_CACHE_BYTES);
 #endif
 
-		/* allocate a skb to store the frags */
+		// Выделение памяти для sk_buff
 		skb = netdev_alloc_skb_ip_align(rx_ring->netdev,
 						IGB_RX_HDR_LEN);
 		if (unlikely(!skb)) {
@@ -917,24 +926,23 @@ static struct sk_buff *igb_fetch_rx_buffer(struct igb_ring *rx_ring,
 			return NULL;
 		}
 
-		/*
-		 * we will be copying header into skb->data in
-		 * pskb_may_pull so it is in our interest to prefetch
-		 * it now to avoid a possible cache miss
-		 */
+		// Загрузка участка памяти структуры sk_buff
+		// для копирования в него всего пакета или только
+		// Ethernet заголовка 
 		prefetchw(skb->data);
 	}
 
-	/* we are reusing so sync this buffer for CPU use */
+	// Синхронизация страницы памяти с DMA
 	dma_sync_single_range_for_cpu(rx_ring->dev,
 				      rx_buffer->dma,
 				      rx_buffer->page_offset,
 				      IGB_RX_BUFSZ,
 				      DMA_FROM_DEVICE);
 
-	/* pull page into skb */
+	// Заполнение структуры sk_buff данными
 	if (igb_add_rx_frag(rx_ring, rx_buffer, rx_desc, skb)) {
-		/* hand second half of page back to the ring */
+		// Заново используем страницу памяти, так как
+		// в неё можно ещё записать пакет
 		igb_reuse_rx_page(rx_ring, rx_buffer);
 	} else {
 		/* we are not reusing the buffer so unmap it */
@@ -949,12 +957,11 @@ static struct sk_buff *igb_fetch_rx_buffer(struct igb_ring *rx_ring,
 }
 ```
 
-Также стоит уточнить, что в драйверах с большей пропускной способностью перед заполнением структуры `sk_buff` происходит заполнение структуры `xdp_buff`, но не происходит копирования пакета, что позволяет с помощью технологии «EBPF» перенаправлять трафик, исключая лишнее копирование пакетов в структуру `sk_buff`.
+Также стоит уточнить, что в драйверах с большей пропускной способностью перед созданием и заполнением структуры `sk_buff` происходит заполнение структуры `xdp_buff`, которая имеет указатель на пакет в буфере, что позволяет с помощью технологии «EBPF» перенаправлять трафик, исключая работу со структурой `sk_buff`.
 
+После передачи структуры `sk_buff` вверх по стеку протоколов данные пакета становятся доступны открытым сокетам [13].   
 
-#### Работа сетевого стека
-
-(https://blog.packagecloud.io/monitoring-tuning-linux-networking-stack-receiving-data/)
+()
 (https://habr.com/ru/companies/vk/articles/314168/)
 
 ### Отправка сетевых пакетов
@@ -986,6 +993,6 @@ static struct sk_buff *igb_fetch_rx_buffer(struct igb_ring *rx_ring,
 10. [Документация ядра «Linux» о работе с PCI](https://www.kernel.org/doc/html/next/driver-api/pci/pci.html)
 11. [Документация ядра «Linux» о работе с сетевыми интерфейсами](https://www.kernel.org/doc/html/latest/networking/kapi.html)
 12. [Документация ядра «Linux» о работе c NAPI](https://www.kernel.org/doc/html/latest/networking/napi.html)
-13.
+13. [Monitoring and Tuning the Linux Networking Stack: Receiving Data](https://blog.packagecloud.io/monitoring-tuning-linux-networking-stack-receiving-data/)
 14.
 
