@@ -959,12 +959,183 @@ static struct sk_buff *igb_fetch_rx_buffer(struct igb_ring *rx_ring,
 
 Также стоит уточнить, что в драйверах с большей пропускной способностью перед созданием и заполнением структуры `sk_buff` происходит заполнение структуры `xdp_buff`, которая имеет указатель на пакет в буфере, что позволяет с помощью технологии «EBPF» перенаправлять трафик, исключая работу со структурой `sk_buff`.
 
-После передачи структуры `sk_buff` вверх по стеку протоколов данные пакета становятся доступны открытым сокетам [13].   
-
-()
-(https://habr.com/ru/companies/vk/articles/314168/)
+После передачи структуры `sk_buff` вверх по стеку протоколов данные пакета становятся доступны открытым сокетам [13].
 
 ### Отправка сетевых пакетов
+
+В структуре `net_device_ops`, в которой храняться указатели на функции, выполняемые сетевым интерфейсом, функция `ndo_start_xmit` (`igb_xmit_frame`) отвечает за отправку сетевого пакета. В ней проверяется возможность отправки пакета, определяется кольцевая очередь отправки (функция `igb_tx_queue_mapping`) и происходит передача пакета в функции `igb_xmit_frame_ring`.
+
+Очередь отправки пакета может определяться номером логического процессора, на котором была сформирована структура `sk_buff`, настройкой сокета или настройкой пользователя.
+
+```c
+// src/igb_main.c
+// Пример функции определения очереди для отправки
+static inline struct igb_ring *igb_tx_queue_mapping(struct igb_adapter *adapter,
+						    struct sk_buff *skb)
+{
+	// Значение skb->queue_mapping устанавливается
+	// выше по стеку вызовов
+	unsigned int r_idx = skb->queue_mapping;
+
+	if (r_idx >= adapter->num_tx_queues)
+		r_idx = r_idx % adapter->num_tx_queues;
+
+	return adapter->tx_ring[r_idx];
+}
+```
+
+```c
+// src/igb_main.c
+// Пример функции отправки пакета
+static netdev_tx_t igb_xmit_frame(struct sk_buff *skb,
+				  struct net_device *netdev)
+{
+	// Указатель на структуру igb_adapter является одним из
+	// полей структуры net_device 
+	struct igb_adapter *adapter = netdev_priv(netdev);
+
+	// Если интерфейс отключён, то пакет не будет отправлен
+	if (test_bit(__IGB_DOWN, adapter->state)) {
+		// Функция уменьшает счётчик владельцев, и в случае
+		// единоличного использования освобождает память
+		dev_kfree_skb_any(skb);
+		return NETDEV_TX_OK;
+	}
+
+	// Если пакета нет, то он не будет отправлен
+	if (skb->len <= 0) {
+		dev_kfree_skb_any(skb);
+		return NETDEV_TX_OK;
+	}
+
+	// Дополнение до 17 байт согласно спецификации
+	if (skb->len < 17) {
+		if (skb_padto(skb, 17))
+			return NETDEV_TX_OK;
+		skb->len = 17;
+	}
+
+	// Определение кольца по текущему логическому процессору
+	// и передача пакета в это кольцо
+	return igb_xmit_frame_ring(skb, igb_tx_queue_mapping(adapter, skb));
+}
+```
+
+```c
+// src/igb_main.c
+// Пример функции передачи пакета сетевой карте
+netdev_tx_t igb_xmit_frame_ring(struct sk_buff *skb,
+				struct igb_ring *tx_ring)
+{
+	struct igb_tx_buffer *first;
+	int tso;
+	u32 tx_flags = 0;
+#if PAGE_SIZE > IGB_MAX_DATA_PER_TXD
+	unsigned short f;
+#endif
+	u16 count = TXD_USE_COUNT(skb_headlen(skb));
+	__be16 protocol = vlan_get_protocol(skb);
+	u8 hdr_len = 0;
+
+	/*
+	 * need: 1 descriptor per page * PAGE_SIZE/IGB_MAX_DATA_PER_TXD,
+	 *       + 1 desc for skb_headlen/IGB_MAX_DATA_PER_TXD,
+	 *       + 2 desc gap to keep tail from touching head,
+	 *       + 1 desc for context descriptor,
+	 * otherwise try next time
+	 */
+#if PAGE_SIZE > IGB_MAX_DATA_PER_TXD
+	for (f = 0; f < skb_shinfo(skb)->nr_frags; f++)
+		count += TXD_USE_COUNT(skb_shinfo(skb)->frags[f].size);
+#else
+	count += skb_shinfo(skb)->nr_frags;
+#endif
+	if (igb_maybe_stop_tx(tx_ring, count + 3)) {
+		/* this is a hard error */
+		return NETDEV_TX_BUSY;
+	}
+
+	/* record the location of the first descriptor for this packet */
+	first = &tx_ring->tx_buffer_info[tx_ring->next_to_use];
+	first->skb = skb;
+	first->bytecount = skb->len;
+	first->gso_segs = 1;
+
+#ifdef HAVE_PTP_1588_CLOCK
+#ifdef SKB_SHARED_TX_IS_UNION
+	if (unlikely(skb_tx(skb)->hardware)) {
+#else
+	if (unlikely(skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP)) {
+#endif
+		struct igb_adapter *adapter = netdev_priv(tx_ring->netdev);
+
+		if (adapter->tstamp_config.tx_type & HWTSTAMP_TX_ON &&
+		    !test_and_set_bit_lock(__IGB_PTP_TX_IN_PROGRESS,
+					   adapter->state)) {
+#ifdef SKB_SHARED_TX_IS_UNION
+			skb_tx(skb)->in_progress = 1;
+#else
+			skb_shinfo(skb)->tx_flags |= SKBTX_IN_PROGRESS;
+#endif
+			tx_flags |= IGB_TX_FLAGS_TSTAMP;
+
+			adapter->ptp_tx_skb = skb_get(skb);
+			adapter->ptp_tx_start = jiffies;
+			if (adapter->hw.mac.type == e1000_82576)
+				igb_ptp_tx_work(&adapter->ptp_tx_work);
+		}
+	}
+#endif /* HAVE_PTP_1588_CLOCK */
+	skb_tx_timestamp(skb);
+	if (skb_vlan_tag_present(skb)) {
+		tx_flags |= IGB_TX_FLAGS_VLAN;
+		tx_flags |= (skb_vlan_tag_get(skb) << IGB_TX_FLAGS_VLAN_SHIFT);
+	}
+
+	/* record initial flags and protocol */
+	first->tx_flags = tx_flags;
+	first->protocol = protocol;
+
+	tso = igb_tso(tx_ring, first, &hdr_len);
+	if (tso < 0)
+		goto out_drop;
+	else if (!tso)
+		igb_tx_csum(tx_ring, first);
+
+#ifdef HAVE_PTP_1588_CLOCK
+	if (igb_tx_map(tx_ring, first, hdr_len))
+		goto cleanup_tx_tstamp;
+#else
+	igb_tx_map(tx_ring, first, hdr_len);
+#endif
+
+#ifndef HAVE_TRANS_START_IN_QUEUE
+	netdev_ring(tx_ring)->trans_start = jiffies;
+
+#endif
+	/* Make sure there is space in the ring for the next send. */
+	igb_maybe_stop_tx(tx_ring, DESC_NEEDED);
+
+	return NETDEV_TX_OK;
+
+out_drop:
+	igb_unmap_and_free_tx_resource(tx_ring, first);
+#ifdef HAVE_PTP_1588_CLOCK
+cleanup_tx_tstamp:
+	if (unlikely(tx_flags & IGB_TX_FLAGS_TSTAMP)) {
+		struct igb_adapter *adapter = netdev_priv(tx_ring->netdev);
+
+		dev_kfree_skb_any(adapter->ptp_tx_skb);
+		adapter->ptp_tx_skb = NULL;
+		if (adapter->hw.mac.type == e1000_82576)
+			cancel_work_sync(&adapter->ptp_tx_work);
+		clear_bit_unlock(__IGB_PTP_TX_IN_PROGRESS, adapter->state);
+	}
+#endif
+
+	return NETDEV_TX_OK;
+}
+```
 
 (https://blog.packagecloud.io/monitoring-tuning-linux-networking-stack-sending-data/)
 
@@ -972,6 +1143,7 @@ static struct sk_buff *igb_fetch_rx_buffer(struct igb_ring *rx_ring,
 
 (https://man7.org/linux/man-pages/man7/socket.7.html)
 (https://habr.com/ru/articles/886058/)
+(https://habr.com/ru/companies/vk/articles/314168/)
 
 ## Полезные материалы
 
