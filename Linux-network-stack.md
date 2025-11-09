@@ -5,7 +5,7 @@
 В данном разделе разбирается устройство сетевого стека ядра Linux от сетевой карты до сокетов.
 
 1. [Драйвер сетевой карты](#драйвер-сетевой-карты)
-	1. [Основные технологии](#основные-технологии)
+	1. [Основные механизмы и технологии](#основные-механизмы-и-технологии)
        1. [DMA](#dma)
        2. [DCA](#dca)
        3. [SoftIRQ](#softirq)
@@ -43,9 +43,9 @@
 
 Ядро Linux является монолитным с поддержкой модулей ядра [2]. Модули ядра могут выполнять различные функции от реализации драйверов (модуль «IGB» [3]) и файловых систем (модуль «BTRFS» [4]) до виртуализации (модуль «KVM» [5]), поэтому далее понятия модуля ядра и драйвера будут одним и тем же. Дальнейшее описание работы драйверов сетевых карт будет основано на реализацииЫ модуля «IGB», так как его работу можно эмулировать в системе виртуализации «QEMU» (см. [создание песочницы](Sandbox-qemu.md)).
 
-### Основные технологии
+### Основные механизмы и технологии
 
-Рассмотрим технологии, которые применяются при работе сетевой карты.
+Рассмотрим основные механизмы и технологии, которые применяются при работе сетевой карты.
 
 #### DMA
 
@@ -63,7 +63,7 @@ DMA (Direct Memory Access) — это технология, позволяюща
 
 #### DCA
 
-Технология DCA (Direct Cache Access) является развитием технологии DMA, так как её целью является ускорение операций работы с памятью. Для работы требуется три структуры данных, которые содержат: состояние, дескрипторы и полезную нагрузку. Они выделяются из физической памяти и кэшируются в кэш-памяти процессора [8].
+Технология DCA (Direct Cache Access) является развитием DMA, так как её целью является ускорение операций работы с памятью. Для работы требуется три структуры данных, которые содержат: состояние, дескрипторы и полезную нагрузку. Они выделяются из физической памяти и кэшируются в кэш-памяти процессора [8].
 
 Принцип работы следующий [8]:
 
@@ -78,9 +78,52 @@ DCA имеет два преимущества:
 
 #### SoftIRQ
 
-Одним из принципов разработки драйверов является то, что обработка прерывания должна занимать как можно меньшее время, так как при длительной обработке повышается шанс пропустить следующее прерывание. Но обработать большое количество сетевого трафика за небольшое время является невозможным. Поэтому была придумана технология «SoftIRQ». Принцип работы заключается в том, чтобы перенести долгую обработку данных из контекса прерывания в контекст потока ядра. Отложенная обработка происходит либо по таймеру за потоков ядра (по одному на каждый логический процессор), либо при окончании системного вызова [9].
+Одним из принципов разработки драйверов является то, что обработка прерывания должна занимать как можно меньшее время, так как при длительной обработке повышается шанс пропустить следующее прерывание. Но обработать большое количество сетевого трафика за небольшое время является невозможным. Поэтому была придуман механизм «SoftIRQ». Его принцип работы заключается в том, чтобы перенести долгую обработку данных из контекса прерывания в контекст потока ядра. Отложенная обработка происходит либо по таймеру за потоков ядра (по одному на каждый логический процессор), либо при окончании системного вызова [9].
 
 За выполнение обработки прерываний отвечают потоки ядра с названиями `ksoftirqd/N`, где `N` — это номер логического процессора, прерывания которого обрабатываются этим потоком. Также статистику по работе этих потоков можно изучить через файл `/proc/softirqs`.
+
+#### Буферы сокетов
+
+Основной структурой для передачи сетевых данных в ядре «Linux» является структура `sk_buff`. Структуру можно разделить на две части: данные управления и данные пакета. Данные пакета могут находится как в самой структуре, так и в отдельных участках памяти (фрагментах). В самой структуре может хранится весь пакет, если он небольшой (менее 256 байт), в иных случаях в структуру записываются указатели на фрагменты данных [1].
+
+```c
+// linux/include/linux/skbuff.h
+// Пример структуры sk_buff
+struct sk_buff {
+	/* ... */
+
+	// Данные управления
+	// Указатели на буферы для управления
+	// двухнаправленным списком
+	struct sk_buff *next;
+	struct sk_buff *prev;
+
+	/* ... */
+
+	// Указатель на сетевой интерфейс источника
+	struct net_device	*dev;
+
+	/* ... */
+
+	// Смещения до данных каждого уровня
+	__u16 transport_header;
+	__u16 network_header;
+	__u16 mac_header;
+
+	/* ... */
+
+	// Указатели на дополнительные фрагменты пакета
+	sk_buff_data_t		tail;
+	sk_buff_data_t		end;
+
+	// Указатели на данные
+	unsigned char *head, *data;
+
+	/* ... */
+};
+```
+
+Основное свойство данной структуры — универсальность. Структура создаётся при приёме пакетов или отправке пакетов через сетевой интерфейс, проходя путь от пользовательского приложения до сетевой карты.
 
 #### NAPI
 
@@ -706,7 +749,7 @@ static int igb_poll(struct napi_struct *napi, int budget)
 		return budget;
 
 	napi_complete(napi);
-	// Включение аппаратных прерываний 
+	// Включение аппаратных прерываний
 	igb_ring_irq_enable(q_vector);
 
 	return 0;
@@ -928,7 +971,7 @@ static struct sk_buff *igb_fetch_rx_buffer(struct igb_ring *rx_ring,
 
 		// Загрузка участка памяти структуры sk_buff
 		// для копирования в него всего пакета или только
-		// Ethernet заголовка 
+		// Ethernet заголовка
 		prefetchw(skb->data);
 	}
 
@@ -963,7 +1006,7 @@ static struct sk_buff *igb_fetch_rx_buffer(struct igb_ring *rx_ring,
 
 ### Отправка сетевых пакетов
 
-В структуре `net_device_ops`, в которой храняться указатели на функции, выполняемые сетевым интерфейсом, функция `ndo_start_xmit` (`igb_xmit_frame`) отвечает за отправку сетевого пакета. В ней проверяется возможность отправки пакета, определяется кольцевая очередь отправки (функция `igb_tx_queue_mapping`) и происходит передача пакета в функции `igb_xmit_frame_ring`.
+В структуре `net_device_ops`, в которой храняться указатели на функции, выполняемые сетевым интерфейсом, функция `ndo_start_xmit` (`igb_xmit_frame`) отвечает за отправку сетевого пакета. В ней проверяется возможность отправки пакета, определяется кольцевая очередь отправки (функция `igb_tx_queue_mapping`), определяется возможность отправки пакета (функция `igb_xmit_frame_ring`) и с помощью технологии DMA происходит отправка пакета (функция `igb_tx_map`) [14].
 
 Очередь отправки пакета может определяться номером логического процессора, на котором была сформирована структура `sk_buff`, настройкой сокета или настройкой пользователя.
 
@@ -980,6 +1023,8 @@ static inline struct igb_ring *igb_tx_queue_mapping(struct igb_adapter *adapter,
 	if (r_idx >= adapter->num_tx_queues)
 		r_idx = r_idx % adapter->num_tx_queues;
 
+	// Обычно это номер логического процессора,
+	// на котором создана структура sk_buff
 	return adapter->tx_ring[r_idx];
 }
 ```
@@ -991,7 +1036,7 @@ static netdev_tx_t igb_xmit_frame(struct sk_buff *skb,
 				  struct net_device *netdev)
 {
 	// Указатель на структуру igb_adapter является одним из
-	// полей структуры net_device 
+	// полей структуры net_device
 	struct igb_adapter *adapter = netdev_priv(netdev);
 
 	// Если интерфейс отключён, то пакет не будет отправлен
@@ -1023,7 +1068,7 @@ static netdev_tx_t igb_xmit_frame(struct sk_buff *skb,
 
 ```c
 // src/igb_main.c
-// Пример функции передачи пакета сетевой карте
+// Пример функции для определения возможности отправки пакета
 netdev_tx_t igb_xmit_frame_ring(struct sk_buff *skb,
 				struct igb_ring *tx_ring)
 {
@@ -1033,117 +1078,326 @@ netdev_tx_t igb_xmit_frame_ring(struct sk_buff *skb,
 #if PAGE_SIZE > IGB_MAX_DATA_PER_TXD
 	unsigned short f;
 #endif
+	// Получение количества дескрипторов для
+	// отправки заголовков пакета
 	u16 count = TXD_USE_COUNT(skb_headlen(skb));
 	__be16 protocol = vlan_get_protocol(skb);
 	u8 hdr_len = 0;
 
-	/*
-	 * need: 1 descriptor per page * PAGE_SIZE/IGB_MAX_DATA_PER_TXD,
-	 *       + 1 desc for skb_headlen/IGB_MAX_DATA_PER_TXD,
-	 *       + 2 desc gap to keep tail from touching head,
-	 *       + 1 desc for context descriptor,
-	 * otherwise try next time
-	 */
 #if PAGE_SIZE > IGB_MAX_DATA_PER_TXD
+	// Добавление количество дескрипторов
+	// для флагментов пакета, если
+	// пакет большой
 	for (f = 0; f < skb_shinfo(skb)->nr_frags; f++)
 		count += TXD_USE_COUNT(skb_shinfo(skb)->frags[f].size);
 #else
 	count += skb_shinfo(skb)->nr_frags;
 #endif
+	// Проверка доступности количества дескрипторов
 	if (igb_maybe_stop_tx(tx_ring, count + 3)) {
-		/* this is a hard error */
 		return NETDEV_TX_BUSY;
 	}
 
-	/* record the location of the first descriptor for this packet */
+	// Заполнение буфера для отправки пакета
 	first = &tx_ring->tx_buffer_info[tx_ring->next_to_use];
 	first->skb = skb;
 	first->bytecount = skb->len;
 	first->gso_segs = 1;
 
-#ifdef HAVE_PTP_1588_CLOCK
-#ifdef SKB_SHARED_TX_IS_UNION
-	if (unlikely(skb_tx(skb)->hardware)) {
-#else
-	if (unlikely(skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP)) {
-#endif
-		struct igb_adapter *adapter = netdev_priv(tx_ring->netdev);
+	/* ... */
 
-		if (adapter->tstamp_config.tx_type & HWTSTAMP_TX_ON &&
-		    !test_and_set_bit_lock(__IGB_PTP_TX_IN_PROGRESS,
-					   adapter->state)) {
-#ifdef SKB_SHARED_TX_IS_UNION
-			skb_tx(skb)->in_progress = 1;
-#else
-			skb_shinfo(skb)->tx_flags |= SKBTX_IN_PROGRESS;
-#endif
-			tx_flags |= IGB_TX_FLAGS_TSTAMP;
-
-			adapter->ptp_tx_skb = skb_get(skb);
-			adapter->ptp_tx_start = jiffies;
-			if (adapter->hw.mac.type == e1000_82576)
-				igb_ptp_tx_work(&adapter->ptp_tx_work);
-		}
-	}
-#endif /* HAVE_PTP_1588_CLOCK */
 	skb_tx_timestamp(skb);
 	if (skb_vlan_tag_present(skb)) {
 		tx_flags |= IGB_TX_FLAGS_VLAN;
 		tx_flags |= (skb_vlan_tag_get(skb) << IGB_TX_FLAGS_VLAN_SHIFT);
 	}
 
-	/* record initial flags and protocol */
+	// Установка протокола и флагов
 	first->tx_flags = tx_flags;
 	first->protocol = protocol;
 
+	// По возможности разделяет данные протокола TCP
 	tso = igb_tso(tx_ring, first, &hdr_len);
 	if (tso < 0)
 		goto out_drop;
 	else if (!tso)
 		igb_tx_csum(tx_ring, first);
 
-#ifdef HAVE_PTP_1588_CLOCK
-	if (igb_tx_map(tx_ring, first, hdr_len))
-		goto cleanup_tx_tstamp;
-#else
+	/* ... */
+
+	// Отправка пакета с помощью DMA
 	igb_tx_map(tx_ring, first, hdr_len);
-#endif
 
-#ifndef HAVE_TRANS_START_IN_QUEUE
-	netdev_ring(tx_ring)->trans_start = jiffies;
+	/* ... */
 
-#endif
-	/* Make sure there is space in the ring for the next send. */
+	// Проверка работоспособности устройства
 	igb_maybe_stop_tx(tx_ring, DESC_NEEDED);
 
 	return NETDEV_TX_OK;
 
 out_drop:
+	// Освободение использованных ресурсов
 	igb_unmap_and_free_tx_resource(tx_ring, first);
-#ifdef HAVE_PTP_1588_CLOCK
-cleanup_tx_tstamp:
-	if (unlikely(tx_flags & IGB_TX_FLAGS_TSTAMP)) {
-		struct igb_adapter *adapter = netdev_priv(tx_ring->netdev);
 
-		dev_kfree_skb_any(adapter->ptp_tx_skb);
-		adapter->ptp_tx_skb = NULL;
-		if (adapter->hw.mac.type == e1000_82576)
-			cancel_work_sync(&adapter->ptp_tx_work);
-		clear_bit_unlock(__IGB_PTP_TX_IN_PROGRESS, adapter->state);
-	}
-#endif
+	/* ... */
 
 	return NETDEV_TX_OK;
 }
 ```
 
-(https://blog.packagecloud.io/monitoring-tuning-linux-networking-stack-sending-data/)
+```c
+// src/igb_main.c
+// Пример функции отправки пакета
+static int igb_tx_map(struct igb_ring *tx_ring,
+		      struct igb_tx_buffer *first,
+		      const u8 hdr_len)
+{
+	struct sk_buff *skb = first->skb;
+	struct igb_tx_buffer *tx_buffer;
+	union e1000_adv_tx_desc *tx_desc;
+	skb_frag_t *frag;
+	dma_addr_t dma;
+	unsigned int data_len, size;
+	u32 tx_flags = first->tx_flags;
+	u32 cmd_type = igb_tx_cmd_type(skb, tx_flags);
+	u16 i = tx_ring->next_to_use;
 
-## Сокеты ядра Linux
+	// Получение текущего дескриптора кольца отправки
+	tx_desc = IGB_TX_DESC(tx_ring, i);
 
-(https://man7.org/linux/man-pages/man7/socket.7.html)
-(https://habr.com/ru/articles/886058/)
-(https://habr.com/ru/companies/vk/articles/314168/)
+	// Настройка дескриптора: расчёт контрольных сумм, установка длин
+	igb_tx_olinfo_status(tx_ring, tx_desc, tx_flags, skb->len - hdr_len);
+
+	size = skb_headlen(skb);
+	data_len = skb->data_len;
+
+	// Установка памяти DMA для последующего её чтения устройством
+	dma = dma_map_single(tx_ring->dev, skb->data, size, DMA_TO_DEVICE);
+
+	tx_buffer = first;
+
+	// Установка памяти DMA на каждый фрагмент пакета
+	for (frag = &skb_shinfo(skb)->frags[0];; frag++) {
+		if (dma_mapping_error(tx_ring->dev, dma))
+			goto dma_error;
+
+		/* record length, and DMA address */
+		dma_unmap_len_set(tx_buffer, len, size);
+		dma_unmap_addr_set(tx_buffer, dma, dma);
+
+		tx_desc->read.buffer_addr = cpu_to_le64(dma);
+
+		while (unlikely(size > IGB_MAX_DATA_PER_TXD)) {
+			tx_desc->read.cmd_type_len =
+				cpu_to_le32(cmd_type ^ IGB_MAX_DATA_PER_TXD);
+
+			i++;
+			tx_desc++;
+			if (i == tx_ring->count) {
+				tx_desc = IGB_TX_DESC(tx_ring, 0);
+				i = 0;
+			}
+			tx_desc->read.olinfo_status = 0;
+
+			dma += IGB_MAX_DATA_PER_TXD;
+			size -= IGB_MAX_DATA_PER_TXD;
+
+			tx_desc->read.buffer_addr = cpu_to_le64(dma);
+		}
+
+		if (likely(!data_len))
+			break;
+
+		tx_desc->read.cmd_type_len = cpu_to_le32(cmd_type ^ size);
+
+		i++;
+		tx_desc++;
+		if (i == tx_ring->count) {
+			tx_desc = IGB_TX_DESC(tx_ring, 0);
+			i = 0;
+		}
+		tx_desc->read.olinfo_status = 0;
+
+		size = skb_frag_size(frag);
+		data_len -= size;
+
+		dma = skb_frag_dma_map(tx_ring->dev, frag, 0,
+				       size, DMA_TO_DEVICE);
+
+		tx_buffer = &tx_ring->tx_buffer_info[i];
+	}
+
+	// Установка бит окончания отправки пакета./
+	cmd_type |= size | IGB_TXD_DCMD;
+	tx_desc->read.cmd_type_len = cpu_to_le32(cmd_type);
+
+	// Обновление статистики сетевого интерфейса
+	netdev_tx_sent_queue(txring_txq(tx_ring), first->bytecount);
+	first->time_stamp = jiffies;
+
+	// Барьер памяти, который гарантирует, что все записанные
+	// выше данные были записаны в память
+	wmb();
+
+	// Указывает на последний дескриптор пакета
+	// Поле используется при очистке дескрипторов
+	// и гарантии отправки пакета
+	first->next_to_watch = tx_desc;
+
+	i++;
+	if (i == tx_ring->count)
+		i = 0;
+
+	// Установка индекса следующего дескриптора
+	tx_ring->next_to_use = i;
+
+	skb_tx_timestamp(skb);
+
+	// Запись в регистр хвоста индекса, до которого
+	// устройство будет читать дескрипторы и
+	// отправлять данные
+	writel(i, tx_ring->tail);
+
+	/* ... */
+
+	return 0;
+
+dma_error:
+
+	/* ... */
+
+	return -1;
+}
+```
+
+При работе функции `napi_poll` происходит очищение дескрипторов, через которые происходила отправка пакетов, чтобы заново воспользоваться ими.
+
+```c
+// src/igb_main.c
+// Пример функции очиски дескрипторов отправки пакетов
+static bool igb_clean_tx_irq(struct igb_q_vector *q_vector)
+{
+	struct igb_adapter *adapter = q_vector->adapter;
+	struct igb_ring *tx_ring = q_vector->tx.ring;
+	struct igb_tx_buffer *tx_buffer;
+	union e1000_adv_tx_desc *tx_desc;
+	unsigned int total_bytes = 0, total_packets = 0;
+	unsigned int budget = q_vector->tx.work_limit;
+	unsigned int i = tx_ring->next_to_clean;
+
+	// Проверка состояние сетевого интерфейса
+	if (test_bit(__IGB_DOWN, adapter->state))
+		return true;
+
+	// Получение следующего буфера для очиски
+	tx_buffer = &tx_ring->tx_buffer_info[i];
+	tx_desc = IGB_TX_DESC(tx_ring, i);
+	i -= tx_ring->count;
+
+	do {
+		union e1000_adv_tx_desc *eop_desc = tx_buffer->next_to_watch;
+
+		// Если дескриптор не установлен, то отправка ещё не окончена
+		// или её нет
+		if (!eop_desc)
+			break;
+
+		// Барьер памяти, который гарантирует чтение операций выше
+		smp_rmb();
+
+		// Если флаг не установлен, то отправка ещё не окончена
+		if (!(eop_desc->wb.status & cpu_to_le32(E1000_TXD_STAT_DD)))
+			break;
+
+		tx_buffer->next_to_watch = NULL;
+
+		// Обновление статистики
+		total_bytes += tx_buffer->bytecount;
+		total_packets += tx_buffer->gso_segs;
+
+		// Уменьшение счётчика пользователей sk_buff
+		// и очиска памяти
+		dev_kfree_skb_any(tx_buffer->skb);
+
+		// Отключение памяти из DMA
+		dma_unmap_single(tx_ring->dev,
+				 dma_unmap_addr(tx_buffer, dma),
+				 dma_unmap_len(tx_buffer, len),
+				 DMA_TO_DEVICE);
+
+		tx_buffer->skb = NULL;
+		dma_unmap_len_set(tx_buffer, len, 0);
+
+		// Очистка каждого дескриптора до последнего
+		while (tx_desc != eop_desc) {
+			tx_buffer++;
+			tx_desc++;
+			i++;
+			if (unlikely(!i)) {
+				i -= tx_ring->count;
+				tx_buffer = tx_ring->tx_buffer_info;
+				tx_desc = IGB_TX_DESC(tx_ring, 0);
+			}
+
+			/* unmap any remaining paged data */
+			if (dma_unmap_len(tx_buffer, len)) {
+				dma_unmap_page(tx_ring->dev,
+					       dma_unmap_addr(tx_buffer, dma),
+					       dma_unmap_len(tx_buffer, len),
+					       DMA_TO_DEVICE);
+				dma_unmap_len_set(tx_buffer, len, 0);
+			}
+		}
+
+		// Переход к следующему дескриптору
+		tx_buffer++;
+		tx_desc++;
+		i++;
+		if (unlikely(!i)) {
+			i -= tx_ring->count;
+			tx_buffer = tx_ring->tx_buffer_info;
+			tx_desc = IGB_TX_DESC(tx_ring, 0);
+		}
+
+		// Загрузка дескриптора в кэш-память процессора
+		prefetch(tx_desc);
+
+		budget--;
+	} while (likely(budget));
+
+	// Обновдение статистики
+	netdev_tx_completed_queue(txring_txq(tx_ring),
+				  total_packets, total_bytes);
+
+	i += tx_ring->count;
+	tx_ring->next_to_clean = i;
+	tx_ring->tx_stats.bytes += total_bytes;
+	tx_ring->tx_stats.packets += total_packets;
+	q_vector->tx.total_bytes += total_bytes;
+	q_vector->tx.total_packets += total_packets;
+
+	/* ... */
+
+	return !!budget;
+}
+```
+
+Как можно заметить, отправка и получение пакетов зависит от взаимосвязи нескольких технологий, которые позволяют обрабатывает большой объём сетевого трафика за приемлимое время.
+
+## Сокеты ядра «Linux»
+
+Сокет — это конечная точка в процессе передачи данных в ядре «Linux» [15]. Сокеты позволяют получить доступ к сетевым данным из пользовательского пространства, используя системные вызовы. Сокеты подразделяются на основе доменов и типов. Основными доменами являются:
+
+ - `AF_INET`/`AF_INET6` — данные протокола IPv4/IPv6;
+ - `AF_NETLINK` — данные пользовательского сетевого устройства;
+ - `AF_PACKET` — данные канального уровня;
+ - `AF_XDP` — данные уровня драйвера сетевого интерфейса.
+
+Также они разделяются по типу передаваемых данных:
+
+ - `SOCK_STREAM` — гарантия передачи данных и сохранения последовательности (протокол TCP);
+ - `SOCK_DGRAM` — отсутствие гарантий передачи данных и сохранения последовательности (протокол UDP);
+ - `SOCK_RAW` — получение «сырых» данных домена.
 
 ## Полезные материалы
 
@@ -1166,5 +1420,6 @@ cleanup_tx_tstamp:
 11. [Документация ядра «Linux» о работе с сетевыми интерфейсами](https://www.kernel.org/doc/html/latest/networking/kapi.html)
 12. [Документация ядра «Linux» о работе c NAPI](https://www.kernel.org/doc/html/latest/networking/napi.html)
 13. [Monitoring and Tuning the Linux Networking Stack: Receiving Data](https://blog.packagecloud.io/monitoring-tuning-linux-networking-stack-receiving-data/)
-14.
+14. [Monitoring and Tuning the Linux Networking Stack: Sending Data](https://blog.packagecloud.io/monitoring-tuning-linux-networking-stack-sending-data/)
+15. [Мануал по работе с сокетами ядра «Linux»](https://man7.org/linux/man-pages/man2/socket.2.html#SYNOPSIS)
 
