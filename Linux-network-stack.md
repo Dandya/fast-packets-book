@@ -872,9 +872,71 @@ static bool igb_clean_rx_irq(struct igb_q_vector *q_vector, int budget)
 
 ```c
 // src/igb_main.c
-// Пример заполнения структуры sk_buff
+// Пример функции создания структуры sk_buff
+static struct sk_buff *igb_fetch_rx_buffer(struct igb_ring *rx_ring,
+					   union e1000_adv_rx_desc *rx_desc,
+					   struct sk_buff *skb)
+{
+	struct igb_rx_buffer *rx_buffer;
+	struct page *page;
 
-// Функция заполнения структуры sk_buff
+	// Получение буфера с данными, который также настроен
+	// на получение данных от устройства
+	rx_buffer = &rx_ring->rx_buffer_info[rx_ring->next_to_clean];
+
+	// Получение страницы памяти с данными
+	page = rx_buffer->page;
+	// Загрузка страницы в кэш процессора
+	prefetchw(page);
+
+	// Выделение памяти для структуры sk_buff
+	if (likely(!skb)) {
+		void *page_addr = page_address(page) +
+				  rx_buffer->page_offset;
+
+		prefetch(page_addr);
+#if L1_CACHE_BYTES < 128
+		prefetch(page_addr + L1_CACHE_BYTES);
+#endif
+
+		skb = netdev_alloc_skb_ip_align(rx_ring->netdev,
+						IGB_RX_HDR_LEN);
+		if (unlikely(!skb)) {
+			rx_ring->rx_stats.alloc_failed++;
+			return NULL;
+		}
+
+		prefetchw(skb->data);
+	}
+
+	// Синхронизация данных DMA
+	dma_sync_single_range_for_cpu(rx_ring->dev,
+				      rx_buffer->dma,
+				      rx_buffer->page_offset,
+				      IGB_RX_BUFSZ,
+				      DMA_FROM_DEVICE);
+
+	// Добавление данных DMA в структуру sk_buff
+	if (igb_add_rx_frag(rx_ring, rx_buffer, rx_desc, skb)) {
+		// Настройка повторного использования страницы памяти
+		igb_reuse_rx_page(rx_ring, rx_buffer);
+	} else {
+		// Отключение страницы из DMA, для замены следующей,
+		// так как текущая теперь используется структурой sk_buff
+		dma_unmap_page(rx_ring->dev, rx_buffer->dma,
+			       PAGE_SIZE, DMA_FROM_DEVICE);
+	}
+
+	// Очищение буфера для последующего использования
+	rx_buffer->page = NULL;
+
+	return skb;
+}
+```
+
+```c
+// src/igb_main.c
+// Пример заполнения структуры sk_buff
 static bool igb_add_rx_frag(struct igb_ring *rx_ring,
 			    struct igb_rx_buffer *rx_buffer,
 			    union e1000_adv_rx_desc *rx_desc,
@@ -933,70 +995,6 @@ add_tail_frag:
 	// Проверка возможности дальнейшего использовая текущей
 	// страницы памяти (есть ли ещё пакеты в странице)
 	return igb_can_reuse_rx_page(rx_buffer, page, truesize);
-}
-
-/* ... */
-
-// Пример функции создания и заполения структуры sk_buff
-static struct sk_buff *igb_fetch_rx_buffer(struct igb_ring *rx_ring,
-					   union e1000_adv_rx_desc *rx_desc,
-					   struct sk_buff *skb)
-{
-	struct igb_rx_buffer *rx_buffer;
-	struct page *page;
-
-	// Получение буфера, содержащего пакеты
-	rx_buffer = &rx_ring->rx_buffer_info[rx_ring->next_to_clean];
-
-	page = rx_buffer->page;
-	// Передача данных страницы в кеш-память процессора
-	prefetchw(page);
-
-	if (likely(!skb)) {
-		void *page_addr = page_address(page) +
-				  rx_buffer->page_offset;
-
-		prefetch(page_addr);
-#if L1_CACHE_BYTES < 128
-		prefetch(page_addr + L1_CACHE_BYTES);
-#endif
-
-		// Выделение памяти для sk_buff
-		skb = netdev_alloc_skb_ip_align(rx_ring->netdev,
-						IGB_RX_HDR_LEN);
-		if (unlikely(!skb)) {
-			rx_ring->rx_stats.alloc_failed++;
-			return NULL;
-		}
-
-		// Загрузка участка памяти структуры sk_buff
-		// для копирования в него всего пакета или только
-		// Ethernet заголовка
-		prefetchw(skb->data);
-	}
-
-	// Синхронизация страницы памяти с DMA
-	dma_sync_single_range_for_cpu(rx_ring->dev,
-				      rx_buffer->dma,
-				      rx_buffer->page_offset,
-				      IGB_RX_BUFSZ,
-				      DMA_FROM_DEVICE);
-
-	// Заполнение структуры sk_buff данными
-	if (igb_add_rx_frag(rx_ring, rx_buffer, rx_desc, skb)) {
-		// Заново используем страницу памяти, так как
-		// в неё можно ещё записать пакет
-		igb_reuse_rx_page(rx_ring, rx_buffer);
-	} else {
-		/* we are not reusing the buffer so unmap it */
-		dma_unmap_page(rx_ring->dev, rx_buffer->dma,
-			       PAGE_SIZE, DMA_FROM_DEVICE);
-	}
-
-	/* clear contents of rx_buffer */
-	rx_buffer->page = NULL;
-
-	return skb;
 }
 ```
 
