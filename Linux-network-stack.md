@@ -1040,8 +1040,7 @@ static netdev_tx_t igb_xmit_frame(struct sk_buff *skb,
 
 	// Если интерфейс отключён, то пакет не будет отправлен
 	if (test_bit(__IGB_DOWN, adapter->state)) {
-		// Функция уменьшает счётчик владельцев, и в случае
-		// единоличного использования освобождает память
+		// Освобождает память для sk_buff
 		dev_kfree_skb_any(skb);
 		return NETDEV_TX_OK;
 	}
