@@ -827,7 +827,8 @@ static bool igb_clean_rx_irq(struct igb_q_vector *q_vector, int budget)
 #endif
 		// Выполнение GRO, что аналогично LRO, но используется
 		// сетевой стек ядра, а также передача sk_buff вверх по
-		// стеку ядра
+		// стеку ядра, кроме того, освобождение памяти для структуры sk_buff
+		// а также происходит в этих функциях (см. linux/net/core/gro.c)
 #ifdef HAVE_VLAN_RX_REGISTER
 			igb_receive_skb(q_vector, skb);
 #else
