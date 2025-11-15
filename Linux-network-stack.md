@@ -827,8 +827,7 @@ static bool igb_clean_rx_irq(struct igb_q_vector *q_vector, int budget)
 #endif
 		// Выполнение GRO, что аналогично LRO, но используется
 		// сетевой стек ядра, а также передача sk_buff вверх по
-		// стеку ядра, кроме того, освобождение памяти для структуры sk_buff
-		// а также происходит в этих функциях (см. linux/net/core/gro.c)
+		// стеку ядра
 #ifdef HAVE_VLAN_RX_REGISTER
 			igb_receive_skb(q_vector, skb);
 #else
@@ -838,6 +837,7 @@ static bool igb_clean_rx_irq(struct igb_q_vector *q_vector, int budget)
 		netdev_ring(rx_ring)->last_rx = jiffies;
 #endif
 
+		// Очищение структуры не требуется
 		skb = NULL;
 
 		// Для статистики
@@ -890,7 +890,7 @@ static struct sk_buff *igb_fetch_rx_buffer(struct igb_ring *rx_ring,
 	// Загрузка страницы в кэш процессора
 	prefetchw(page);
 
-	// Выделение памяти для структуры sk_buff
+	// Получение памяти для структуры sk_buff
 	if (likely(!skb)) {
 		void *page_addr = page_address(page) +
 				  rx_buffer->page_offset;
@@ -900,6 +900,7 @@ static struct sk_buff *igb_fetch_rx_buffer(struct igb_ring *rx_ring,
 		prefetch(page_addr + L1_CACHE_BYTES);
 #endif
 
+		// Выделение памяти из кеша системы
 		skb = netdev_alloc_skb_ip_align(rx_ring->netdev,
 						IGB_RX_HDR_LEN);
 		if (unlikely(!skb)) {
