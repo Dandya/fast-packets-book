@@ -23,7 +23,7 @@ sudo apt update
 # virt-manager - пакет, содержащий оболочку для работы библиотеки libvirt
 # libvirt-daemon-system libvirt-clients - пакеты с зависимостями и системными утилитами
 # bridge-utils - пакет, содержащий утилиты для настройки моста
-sudo apt install qemu-kvm qemu-utils virt-manager libvirt-daemon-system libvirt-clients bridge-utils
+sudo apt install qemu-kvm qemu-utils virt-manager libvirt-daemon-system libvirt-clients bridge-utils virt-viewer
 ```
 
 Запуск «Virtual Machine Manager» можно производить через графический интерфейс или через командную строку:
@@ -39,10 +39,14 @@ sudo virt-manager
 ```sh
 # Проверяет работу службы виртуализации libvirtd
 systemctl status libvirtd
+# Создаём директорию для образа виртуальной машины
+sudo mkdir -p /var/lib/libvirt/{images,networks}
+sudo chown -R root:libvirt /var/lib/libvirt
+sudo chmod -R 775 /var/lib/libvirt
 # Перед запуском следующей команды загрузите файл по по пути
 PATH_TO_DEBIAN='/tmp/debian-13.1.0-amd64-netinst.iso'
 # Описываем изолированную сеть
-cat >> /home/$USER/Desktop/isolated-network.xml << EOF
+sudo bash -c  "cat >> /var/lib/libvirt/networks/deb13-fp-isolated-network.xml << EOF
 <network>
   <name>vm-to-vm</name>
   <forward mode='none'/>
@@ -54,12 +58,15 @@ cat >> /home/$USER/Desktop/isolated-network.xml << EOF
   </ip>
 </network>
 EOF
+"
 # Определяем сеть по XML файлу
-sudo virsh net-define /home/$USER/Desktop/isolated-network.xml
+sudo virsh net-define /var/lib/libvirt/networks/deb13-fp-isolated-network.xml
 # Запускаем сеть
 sudo virsh net-start vm-to-vm
+sudo virsh net-start default
 # Настраиваем автозапуск
 sudo virsh net-autostart vm-to-vm
+sudo virsh net-autostart default
 # virt-install - утилита для создания виртуальной машины
 # --name - имя виртуальной машины
 # --vcpus - количество доступных ядер
@@ -73,7 +80,7 @@ sudo virt-install \
   --name=deb13-fast-packets \
   --vcpus=2 \
   --memory=2048 \
-  --disk size=30,path=/home/$USER/Desktop/deb13-fast-packets.qcow2 \
+  --disk size=30,path=/var/lib/libvirt/images/deb13-fast-packets.qcow2 \
   --os-variant=debian13 \
   --cdrom=$PATH_TO_DEBIAN \
   --network bridge=virbr0,model=virtio \
