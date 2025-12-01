@@ -18,10 +18,10 @@
 0. [Установка песочницы на базе «QEMU»](Sandbox-qemu.md)
 1. [Основы работы сетевого стека ядра Linux](Linux-network-stack.md)
 2. [Настройка сетевых интерфейсов](Settings-of-interfaces.md)
-3. [Обзор системы AF_PACKET](AF_PACKET.md)
-4. Обзор системы AF_XDP
-5. Обзор системы DPDK
-6. Краткий обзор систем PF_RING и Netmap
+3. [Обзор систем захвата сетевого трафика](Capture-systems.md)
+4. [Анализ системы AF_PACKET](AF_PACKET.md)
+5. Анализ системы AF_XDP
+6. Анализ системы DPDK
 7. Фильтрация пакетов с помощью BPF
 8. Заключение
 
