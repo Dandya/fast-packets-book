@@ -19,18 +19,39 @@
 #include <sys/time.h>
 #include <sys/ioctl.h>
 
-// Настройки работы программы
-#define CONTROL_LEN 128
-#define BUFFER_LEN 1500
-#define SET_PROMISC_MODE 1
-#define FANOUT_MODE PACKET_FANOUT_CPU
-#define FANOUT_QUEUE_COUNT 2
-#define FANOUT_ENABLE 1
+// Пример реализует передачу пакетов между ядром и пользовательским пространством
+// посредством системных вызовов. Чтобы изучить создаваемую программой цепочку вызовов
+// необходимо использовать программу strace и сделать макрос FANOUT_ENABLE равным 0,
+// так как strace плохо работает с потоками.
 
-bool run_flag[FANOUT_QUEUE_COUNT];
-pthread_mutex_t print_mtx;
+// Настройки работы программы.
+#define CONTROL_LEN 128 // Длина буфера для передачи времени.
+#define BUFFER_LEN 1500 // Длина буфера для передачи пакетов.
+#define SOCKET_MODE SOCK_RAW // Тип сокета SOCK_RAW или SOCK_DGRAM.
+#define SET_PROMISC_MODE 1 // Флаг установки режима promisc.
+#define FANOUT_MODE PACKET_FANOUT_CPU // Тип метода распределения пакетов по очередям.
+#define FANOUT_QUEUE_COUNT 2 // Количество очередей.
+#define FANOUT_ENABLE 1 // Флаг использования несколький очеречей.
 
-// Обработчик сигнала
+bool run_flag[FANOUT_QUEUE_COUNT]; // Флаги работы потоков.
+pthread_mutex_t print_mtx;         // Мьютекс для синхронизации вывода сообщений.
+
+struct thread_args {   // Структура с информацией пользователя.
+	const char* ifname;  // Имя сетевого интерфейса.
+	int mode;            // 1 - захват (receive), 0 - отправка (send).
+	int fanout_group_id; // Идентификатор группы очередей пакетов.
+	int fanout_id;       // Идентификатор очереди пакетов.
+};
+
+#if FANOUT_ENABLE == 1
+    #define LOCK_PRINT() pthread_mutex_lock(&print_mtx)
+    #define UNLOCK_PRINT() pthread_mutex_unlock(&print_mtx)
+#else
+    #define LOCK_PRINT()
+    #define UNLOCK_PRINT()
+#endif
+
+// Обработчик сигнала.
 void sigint_handler(int sig) {
 	if (sig == SIGINT) {
 		printf("\nStop...\n");
@@ -66,7 +87,7 @@ set_timestamps(int sock_fd) {
 }
 #endif
 
-// Функция переключения интерфейса в прослушивающий режим (promisc mode)
+// Функция переключения интерфейса в прослушивающий режим (promisc mode).
 // Аргумент: файловый дескриптор сокета.
 int
 set_promisc_mode(int sock_fd, int ifindex) {
@@ -147,15 +168,15 @@ setup_af_packet(const char* ifname, int fanout_group_id) {
 
 	// Системный вызов создания сокета.
 	// Открываем сокет AF_PACKET, который будет получать
-	// пакеты канального уровня (SOCK_RAW).
+	// пакеты с заголовком канального уровня или без него (SOCKET_MODE).
 	// Подробнее: https://man7.org/linux/man-pages/man2/socket.2.html
-	sock_fd = socket(AF_PACKET, SOCK_RAW, 0);
+	sock_fd = socket(AF_PACKET, SOCKET_MODE, 0);
 	if (sock_fd == -1) {
 		perror("Socket error");
 		return -1;
 	}
 
-	// Получение индекса сетевого интерфейса
+	// Получение индекса сетевого интерфейса.
 	// Подробнее: https://man7.org/linux/man-pages/man3/if_indextoname.3.html
 	ifindex = if_nametoindex(ifname);
 	if (ifindex == 0) {
@@ -165,27 +186,27 @@ setup_af_packet(const char* ifname, int fanout_group_id) {
 	}
 
 #ifndef __STRICT_ANSI__
-	// Установка записи времени
+	// Установка записи времени.
 	if (set_timestamps(sock_fd) == -1) {
 		close(sock_fd);
 		return -1;
 	}
 #endif
 
-	// Установка времени ожидания для чтения
+	// Установка времени ожидания для чтения.
 	if (set_recv_timeout(sock_fd) < 0) {
 		close(sock_fd);
 		return -1;
 	}
 
-	// Установка источника пакетов для сокета
+	// Установка источника пакетов для сокета.
 	if (bind_iface_to_sock(sock_fd, ifindex) == -1) {
 		close(sock_fd);
 		return -1;
 	}
 
 #if SET_PROMISC_MODE == 1
-	// Перевод сетевого интерфейса в прослушивающий режим
+	// Перевод сетевого интерфейса в прослушивающий режим.
 	if (set_promisc_mode(sock_fd, ifindex) == -1) {
 		close(sock_fd);
 		return -1;
@@ -193,6 +214,7 @@ setup_af_packet(const char* ifname, int fanout_group_id) {
 #endif
 
 #if FANOUT_ENABLE == 1
+	// Настройка очереди.
 	set_fanout(sock_fd, fanout_group_id);
 #endif
 
@@ -200,10 +222,15 @@ setup_af_packet(const char* ifname, int fanout_group_id) {
 }
 
 // Функция захвата пакетов.
-// Аргументы: файловый дескриптор сокета и ожидаемое количество пакетов.
+// Аргументы: файловый дескриптор сокета и идентификатор очереди.
 void
 receive_pkts(int sock_fd, int id) {
 	unsigned long long pkts_count = 0;
+
+	LOCK_PRINT();
+	printf("Receive start from ID: %d\n", id);
+	UNLOCK_PRINT();
+
 #ifndef __STRICT_ANSI__
 	// Заполнение структур для получения времени захвата.
 	// Подробнее: https://man7.org/linux/man-pages/man3/cmsg.3.html
@@ -246,16 +273,12 @@ receive_pkts(int sock_fd, int id) {
 			}
 		}
 
-#if FANOUT_ENABLE == 1
-		pthread_mutex_lock(&print_mtx);
-#endif
+		LOCK_PRINT();
 		printf("=== Packet ===\n");
 		printf("Data length: %d bytes\n", len);
 		printf("Time %ld:%ld\n", tv.tv_sec, tv.tv_usec);
 		print_first_34_bytes(iov.iov_base, len);
-#if FANOUT_ENABLE == 1
-		pthread_mutex_unlock(&print_mtx);
-#endif
+		UNLOCK_PRINT();
 		++pkts_count;
 	}
 #else
@@ -272,29 +295,21 @@ receive_pkts(int sock_fd, int id) {
 			return;
 		}
 
-#if FANOUT_ENABLE == 1
-		pthread_mutex_lock(&print_mtx);
-#endif
+		LOCK_PRINT();
 		printf("Received packet with len %d\n", len);
 		print_first_34_bytes(buffer, len);
-#if FANOUT_ENABLE == 1
-		pthread_mutex_unlock(&print_mtx);
-#endif
+		UNLOCK_PRINT();
 		++pkts_count;
 	}
 #endif // __STRICT_ANSI__
 
-#if FANOUT_ENABLE == 1
-		pthread_mutex_lock(&print_mtx);
-#endif
+	LOCK_PRINT();
 	printf("Packets count with ID: %d:%llu\n", id, pkts_count);
-#if FANOUT_ENABLE == 1
-		pthread_mutex_unlock(&print_mtx);
-#endif
+	UNLOCK_PRINT();
 }
 
 // Функция отправки пакетов.
-// Аргументы: файловый дескриптор сокета и ожидаемое количество пакетов.
+// Аргументы: файловый дескриптор сокета и идентификатор очереди.
 void
 send_pkts(int sock_fd, int id) {
 	unsigned long long pkts_count = 0;
@@ -311,13 +326,9 @@ send_pkts(int sock_fd, int id) {
 		0x03, 0x07
 	}; // 192.168.1.2	192.168.0.10	TCP	74	35980 → 80 [SYN] Seq=0 Win=64240
 
-#if FANOUT_ENABLE == 1
-		pthread_mutex_lock(&print_mtx);
-#endif
+		LOCK_PRINT();
 		printf("Send start from ID: %d\n", id);
-#if FANOUT_ENABLE == 1
-		pthread_mutex_unlock(&print_mtx);
-#endif
+		UNLOCK_PRINT();
 
 	while (run_flag[id]) {
 		// Системный вызов записи данных в сокет.
@@ -330,13 +341,9 @@ send_pkts(int sock_fd, int id) {
 		++pkts_count;
 	}
 
-#if FANOUT_ENABLE == 1
-		pthread_mutex_lock(&print_mtx);
-#endif
+	LOCK_PRINT();
 	printf("Packets count with ID: %d:%llu\n", id, pkts_count);
-#if FANOUT_ENABLE == 1
-		pthread_mutex_unlock(&print_mtx);
-#endif
+	UNLOCK_PRINT();
 }
 
 // Функция привязки потока к логическому процессору.
@@ -354,13 +361,6 @@ set_affinity_attr(pthread_attr_t *attr, int cpu) {
 
 	return (ret > 0) ? -ret : ret;
 }
-
-struct thread_args {
-	const char* ifname;
-	int mode;
-	int fanout_group_id;
-	int fanout_id;
-};
 
 // Функция запуска сокета af_packet и выполнение над ним действий.
 // Аргументы: имя сетевого интерфейса, действие над сокетом, индекс группы очередей, индекс очереди.
