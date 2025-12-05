@@ -110,6 +110,25 @@ if (ifindex == 0) {
 }
 ```
 
+Дополнительной настройкой является установка размерности времени захвата пакетов в микросекундах или наносекундах.
+
+```c
+// Функция включения сохранения времени захвата пакетов.
+// Аргумент: файловый дескриптор сокета.
+int
+set_timestamps(int sock_fd) {
+	int flag = 1;
+
+	// Системный вызов настройки сокета.
+	// Подробнее: https://man7.org/linux/man-pages/man2/setsockopt.2.html
+	if (setsockopt(sock_fd, SOL_SOCKET, SO_TIMESTAMP, &flag, sizeof(flag)) < 0) {
+		perror("Set timestamps");
+		return -1;
+	}
+	return 0;
+}
+```
+
 
 ### Захват сетевых пакетов
 
