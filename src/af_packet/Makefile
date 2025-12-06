@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -std=gnu17 -O2
+CFLAGS = -Wall -std=c17 -O2
 TARGETS = af_packet_classic af_packet_rings
 
 all: $(TARGETS)

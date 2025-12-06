@@ -13,11 +13,13 @@
 
 #include <arpa/inet.h>
 #include <linux/if_packet.h>
+#include <netinet/in.h>
 #include <net/ethernet.h>
 #include <net/if.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/ioctl.h>
+#include <linux/sockios.h>
 
 // Пример реализует передачу пакетов между ядром и пользовательским пространством
 // посредством системных вызовов. Чтобы изучить создаваемую программой цепочку вызовов
@@ -108,12 +110,14 @@ set_promisc_mode(int sock_fd, int ifindex) {
 	return 0;
 }
 
-// Функция установки времени ожидания для функици чтения из сокета.
+// Функция установки времени ожидания для функции чтения из сокета.
 // Аргумент: файловый дескриптор сокета.
 int
 set_recv_timeout(int sock_fd) {
 	struct timeval tv = {1, 0};
 
+	// Системный вызов настройки сокета.
+	// Подробнее: https://man7.org/linux/man-pages/man2/setsockopt.2.html
 	if (setsockopt(sock_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
 		perror("Set timeout");
 		return -1;
@@ -295,8 +299,16 @@ receive_pkts(int sock_fd, int id) {
 			return;
 		}
 
+		struct timeval tv;
+		int ret = ioctl(sock_fd, SIOCGSTAMP, &tv);
+		if (ret < 0) {
+			perror("Get time by ioctl");
+			return;
+		}
+
 		LOCK_PRINT();
 		printf("Received packet with len %d\n", len);
+		printf("Time %ld:%ld\n", tv.tv_sec, tv.tv_usec);
 		print_first_34_bytes(buffer, len);
 		UNLOCK_PRINT();
 		++pkts_count;

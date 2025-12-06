@@ -368,6 +368,8 @@ receive_pkts(int sock_fd, int id, struct rings_buff* rings) {
 	while (run_flag[id]) {
 		block = (struct block_desc*)rings->rx_io[curr_block].iov_base;
 		if ((block->h1.block_status & TP_STATUS_USER) == 0) {
+			// Системный вызов ожидания события.
+			// Подробнее: https://man7.org/linux/man-pages/man2/poll.2.html
 			poll(&poll_fd, 1, 1000);
 			continue;
 		}
@@ -424,6 +426,8 @@ send_pkts(int sock_fd, int id, struct rings_buff* rings) {
 		packet = ((void *)rings->tx_io[block_i].iov_base + frame_i * frame_size);
 
 		if (packet->tp_status != TP_STATUS_AVAILABLE) {
+			// Системный вызов ожидания события.
+			// Подробнее: https://man7.org/linux/man-pages/man2/poll.2.html
 			poll(&poll_fd, 1, 1000);
 			continue;
 		}
