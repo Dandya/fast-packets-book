@@ -25,6 +25,8 @@
 // посредством системных вызовов. Чтобы изучить создаваемую программой цепочку вызовов
 // необходимо использовать программу strace и сделать макрос FANOUT_ENABLE равным 0,
 // так как strace плохо работает с потоками.
+// Большая благодарность за основу для примеров:
+//       https://github.com/pavel-odintsov/af_packet_traffic_capture
 
 // Настройки работы программы.
 #define CONTROL_LEN 128 // Длина буфера для передачи времени.
@@ -300,6 +302,8 @@ receive_pkts(int sock_fd, int id) {
 		}
 
 		struct timeval tv;
+		// Системный вызов для получения времени захвата последнего пакета.
+		// Подробнее: https://man7.org/linux/man-pages/man2/ioctl.2.html
 		int ret = ioctl(sock_fd, SIOCGSTAMP, &tv);
 		if (ret < 0) {
 			perror("Get time by ioctl");
