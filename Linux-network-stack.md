@@ -90,35 +90,35 @@ DCA имеет два преимущества:
 
 ```c
 // linux/include/linux/skbuff.h
-// Пример структуры sk_buff
+// Пример структуры sk_buff.
 struct sk_buff {
 	/* ... */
 
-	// Данные управления
+	// Данные управления.
 	// Указатели на буферы для управления
-	// двухнаправленным списком
+	// двухнаправленным списком.
 	struct sk_buff *next;
 	struct sk_buff *prev;
 
 	/* ... */
 
-	// Указатель на сетевой интерфейс источника
+	// Указатель на сетевой интерфейс источника.
 	struct net_device	*dev;
 
 	/* ... */
 
-	// Смещения до данных каждого уровня
+	// Смещения до данных каждого уровня.
 	__u16 transport_header;
 	__u16 network_header;
 	__u16 mac_header;
 
 	/* ... */
 
-	// Указатели на дополнительные фрагменты пакета
+	// Указатели на дополнительные фрагменты пакета.
 	sk_buff_data_t		tail;
 	sk_buff_data_t		end;
 
-	// Указатели на данные
+	// Указатели на данные.
 	unsigned char *head, *data;
 
 	/* ... */
@@ -147,22 +147,19 @@ NAPI — это технология обработки событий, испо
 Эта пара индексов отвечает за обнаружение драйвером устройства, с которым он умеет работать. Чтобы понять, с какими устройствами может работать драйвер, необходимо найти список структур «pci_device_id», в котором перечислены пары VID и PID поддерживаемых устройств.
 
 ```c
-// src/e1000_hw.h
-// Пример индексов PID
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/e1000_hw.h
+// Пример индексов PID.
 #define E1000_DEV_ID_I354_BACKPLANE_1GBPS	0x1F40
 #define E1000_DEV_ID_I354_SGMII			0x1F41
 ```
 
 ```c
-// src/igb_main.c
-// Пример списка поддерживаемых устройств драйвера «IGB»
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
+// Пример списка поддерживаемых устройств драйвера «IGB».
 static const struct pci_device_id igb_pci_tbl[] = {
 	{ PCI_VDEVICE(INTEL, E1000_DEV_ID_I354_BACKPLANE_1GBPS) },
 	{ PCI_VDEVICE(INTEL, E1000_DEV_ID_I354_SGMII) },
 	/* ... */
-	{ PCI_VDEVICE(INTEL, E1000_DEV_ID_82575EB_FIBER_SERDES) },
-	{ PCI_VDEVICE(INTEL, E1000_DEV_ID_82575GB_QUAD_COPPER) },
-	/* required last entry */
 	{0, }
 };
 
@@ -174,36 +171,39 @@ MODULE_DEVICE_TABLE(pci, igb_pci_tbl);
 После загрузки модуля, например, c помощью команд `insmod` или `modprobe` выполняется функция, которая передается в макрос `module_init`.
 
 ```c
-// src/igb_main.c
-// Структура с информацией о модуле
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
+// Cписок дополнительных операций над модулем.
+static _DEFINE_DEV_PM_OPS(igb_pm_ops, igb_suspend, igb_resume,
+			  igb_runtime_suspend, igb_runtime_resume,
+			  igb_runtime_idle);
+
+// Структура с информацией о модуле и основными операциями.
 static struct pci_driver igb_driver = {
-	// Имя модуля
+	// Имя модуля.
 	.name     = igb_driver_name,
-	// Поддерживаемые устройства
+	// Поддерживаемые устройства.
 	.id_table = igb_pci_tbl,
-	// Функция регистрация устройства
+	// Функция регистрация устройства.
 	.probe    = igb_probe,
-	// Функция удаления устройства
-	.remove   = __devexit_p(igb_remove),
-	// Функция приостановки устройства
-	.suspend  = igb_suspend,
-	// Функция возобновления работы устройства
-	.resume   = igb_resume,
-	// Возможны и другие функции
-	// в зависимости от конфигурации
+	// Функция удаления устройства.
+	.remove   = igb_remove,
+	// Передача дополнительных функций.
+	.driver.pm = pm_ptr(&igb_pm_ops),
+	// Функция приостановки устройства.
+	.shutdown = igb_shutdown,
 	/* ... */
 };
 
-// Пример установки модуля
+// Пример установки модуля.
 static int __init igb_init_module(void)
 {
 	/* ... */
-	// Установка структуры с данными драйвера
+	// Установка структуры с данными драйвера.
 	ret = pci_register_driver(&igb_driver);
 	/* ... */
 }
 
-// Регистрация функции установки модуля
+// Регистрация функции установки модуля.
 module_init(igb_init_module);
 ```
 
@@ -224,48 +224,45 @@ module_init(igb_init_module);
 13. Множество других настроек в зависимости от конфигурации и устройства.
 
 ```c
-// src/igb/igb_main.c
-// Структура с операциями над сетевым интерфейсом
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
+// Структура с операциями над сетевым интерфейсом.
 static const struct net_device_ops igb_netdev_ops = {
 	.ndo_open		= igb_open,
 	.ndo_stop		= igb_close,
 	.ndo_start_xmit		= igb_xmit_frame,
-	.ndo_get_stats		= igb_get_stats,
+	.ndo_get_stats64	= igb_get_stats64,
 	.ndo_set_rx_mode	= igb_set_rx_mode,
 	.ndo_set_mac_address	= igb_set_mac,
+	.ndo_change_mtu		= igb_change_mtu,
+	.ndo_eth_ioctl		= igb_ioctl,
 	/* ... */
 };
 ```
 
 ```c
-// src/igb/igb_ethtool.c
-// Структура с операциями над сетевым интерфейсом при помощи ethtool
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_ethtool.c
+// Структура с операциями над сетевым интерфейсом при помощи ethtool.
 static const struct ethtool_ops igb_ethtool_ops = {
 	/* ... */
-	.get_drvinfo            = igb_get_drvinfo,
-	.get_regs_len           = igb_get_regs_len,
-	.get_regs               = igb_get_regs,
-	.get_wol                = igb_get_wol,
-	.set_wol                = igb_set_wol,
-	.get_msglevel           = igb_get_msglevel,
-	.set_msglevel           = igb_set_msglevel,
-	.nway_reset             = igb_nway_reset,
-	.get_link               = igb_get_link,
-	.get_eeprom_len         = igb_get_eeprom_len,
-	.get_eeprom             = igb_get_eeprom,
-	.set_eeprom             = igb_set_eeprom,
-	.get_ringparam          = igb_get_ringparam,
-	.set_ringparam          = igb_set_ringparam,
-	.get_pauseparam         = igb_get_pauseparam,
-	.set_pauseparam         = igb_set_pauseparam,
-	.self_test              = igb_diag_test,
-	.get_strings            = igb_get_strings,
+	.get_drvinfo		= igb_get_drvinfo,
+	.get_regs_len		= igb_get_regs_len,
+	.get_regs		= igb_get_regs,
+	.get_wol		= igb_get_wol,
+	.set_wol		= igb_set_wol,
+	.get_msglevel		= igb_get_msglevel,
+	.set_msglevel		= igb_set_msglevel,
+	.nway_reset		= igb_nway_reset,
+	.get_link		= igb_get_link,
+	.get_eeprom_len		= igb_get_eeprom_len,
+	.get_eeprom		= igb_get_eeprom,
+	.set_eeprom		= igb_set_eeprom,
+	.get_ringparam		= igb_get_ringparam,
 	/* ... */
 };
 ```
 
 ```c
-// src/igb/igb_main.c
+// src/igb_main.c
 // Пример инициализации устройства
 static int igb_probe(struct pci_dev *pdev,
 			       const struct pci_device_id *ent)

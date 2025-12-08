@@ -4,3 +4,6 @@
 [submodule "contrib/linux-6.18"]
 	path = contrib/linux-6.18
 	url = https://github.com/torvalds/linux.git
+[submodule "contrib/xdp-tools"]
+	path = contrib/xdp-tools
+	url = https://github.com/xdp-project/xdp-tools.git
