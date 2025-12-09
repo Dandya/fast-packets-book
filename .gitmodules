@@ -7,3 +7,6 @@
 [submodule "contrib/xdp-tools"]
 	path = contrib/xdp-tools
 	url = https://github.com/xdp-project/xdp-tools.git
+[submodule "contrib/cbpf-jit"]
+	path = contrib/cbpf-jit
+	url = https://gitflic.ru/project/dandya353/cbpf-jit-by-kernel.git
