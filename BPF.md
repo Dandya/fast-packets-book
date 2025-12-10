@@ -6,5 +6,5 @@
 
 
 ```sh
-apt install libpcap-dev
+apt install libpcap-dev cmake
 ```

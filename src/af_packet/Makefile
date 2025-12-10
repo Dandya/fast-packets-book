@@ -8,4 +8,4 @@ af_packet_%: %.c
 	$(CC) $(CFLAGS) $< -o $@
 
 clean:
-	rm $(TARGETS)
+	rm $(TARGETS) || true
