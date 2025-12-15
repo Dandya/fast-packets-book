@@ -15,23 +15,20 @@ struct {
 	__uint(value_size, sizeof(int));   // Размер значения, соответствующий некоторому ключу.
 } xsks_map SEC(".maps");             // Расположение структуры в секции ".maps" ELF файла.
 
-int num_socks = 0;      // Количество доступных сокетов.
-static unsigned int rr; // Round-robin балансировка трафика.
-static unsigned int num_pkts = 0;
+int num_socks = 0;          // Количество доступных сокетов.
+static unsigned int num_pkts = 0; // Количество захваченных пакетов.
 
 SEC("xdp") // Расположение функции в секции "xdp_sock" ELF файла.
 int xdp_sock_prog(struct xdp_md *ctx) { // Структура xdp_md хранит данные пакета.
-	const char fmt[] = "NUM %d\n";
-  // Вычисление следующего индекса сокета.
-  num_pkts++;
-  if (num_pkts % 10 == 0)
-    bpf_trace_printk(fmt, sizeof(fmt), num_pkts);
-  rr = (rr + 1) & (num_socks - 1);
+	const char fmt[] = "NUM %d for %d\n";
+  if ((++num_pkts % 10) == 0)
+    bpf_trace_printk(fmt, sizeof(fmt), num_pkts, num_socks);
   // Функция bpf_redirect_map заполняет ряд структур в ядре,
   // что в случае успеха возвращает значение XDP_REDIRECT.
   // Вызывающая сторона в случае значения XDP_REDIRECT вызывает
   // функцию передачи пакета в нужный сокет на основе заполненных структур.
-	return bpf_redirect_map(&xsks_map, rr, XDP_DROP);
+  // Распределение происходит на основе номер логического процессора.
+	return bpf_redirect_map(&xsks_map, bpf_get_smp_processor_id(), XDP_DROP);
 }
 
 char _license[] SEC("license") = "GPL";

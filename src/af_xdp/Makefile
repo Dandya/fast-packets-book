@@ -4,7 +4,7 @@ TARGETS = xdp_kern.o af_xdp_user
 all: ${LIBXDP} ${TARGETS}
 
 af_xdp_user: user.c
-	gcc $< -o $@ -I${LIBXDP_INCLUDE} ${LIBXDP} -lbpf
+	gcc -g $< -o $@ -I${LIBXDP_INCLUDE} ${LIBXDP} -lbpf
 
 xdp_kern.o: kern.c
 	env C_INCLUDE_PATH=/usr/include/aarch64-linux-gnu clang -g -O2 -target bpf $< -c -o $@
