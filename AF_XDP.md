@@ -39,6 +39,8 @@
 ### Процесс передачи сетевых пакетов
 
 Изучить contrib/linux-6.18/net/xdp/xsk.c
+Изучить contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
+Изучить contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_xsk.c
 
 ## Разбор примеров
 
