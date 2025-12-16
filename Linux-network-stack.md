@@ -209,6 +209,7 @@ module_init(igb_init_module);
 
 После того, как модуль будет установлен в ядро, запустится функция `igb_probe` (`igb_driver.probe`) для каждого поддерживаемого устройства, которая выполнит их инициализацию. Для драйвера «IGB» устройствами будут являться сетевые интерфейсы. Их инициализация состоит из следующих шагов:
 
+<!-- Заменить -->
 1. Инициализация PCI-устройства [6];
 2. Установка маски DMA (см. [DMA](#dma)) [7];
 3. Резервирование участков памяти [6];
@@ -262,68 +263,37 @@ static const struct ethtool_ops igb_ethtool_ops = {
 ```
 
 ```c
-// src/igb_main.c
-// Пример инициализации устройства
-static int igb_probe(struct pci_dev *pdev,
-			       const struct pci_device_id *ent)
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
+// Пример инициализации устройства.
+static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
-	/* ... */
 	struct net_device *netdev;
 	struct igb_adapter *adapter;
+	/* ... */
 	int err;
 	/* ... */
-	// Инициализация PCI-устройства
+	// Инициализация PCI-устройства.
 	err = pci_enable_device_mem(pdev);
 	if (err)
 		return err;
 
-	// Установка маски DMA
-	err = dma_set_mask(pci_dev_to_dev(pdev), DMA_BIT_MASK(64));
-	if (!err) {
-		err = dma_set_coherent_mask(pci_dev_to_dev(pdev),
-			DMA_BIT_MASK(64));
-		if (!err)
-			pci_using_dac = 1;
-	} else {
-		err = dma_set_mask(pci_dev_to_dev(pdev), DMA_BIT_MASK(32));
-		if (err) {
-			err = dma_set_coherent_mask(pci_dev_to_dev(pdev),
-				DMA_BIT_MASK(32));
-			if (err) {
-				IGB_ERR(
-				  "No usable DMA configuration, aborting\n");
-				goto err_dma;
-			}
-		}
-	}
-
-	/* ... */
-
-	// Резервирование участков памяти
-	err = pci_request_selected_regions(pdev,
-					  pci_select_bars(pdev,
-							  IORESOURCE_MEM),
-					  igb_driver_name);
+	// Установка маски DMA.
+	err = pci_request_mem_regions(pdev, igb_driver_name);
 	if (err)
 		goto err_pci_reg;
 
-	/* ... */
-
-	// Захват шины PCI для управления устройством
+	// Захват шины PCI для управления устройством.
 	pci_set_master(pdev);
+	pci_save_state(pdev);
 
 	/* ... */
 
-	// Создание и заполнение структуры net_device для регистрации сетевого интерфейса
+	// Создание и заполнение структур управления.
 	netdev = alloc_etherdev_mq(sizeof(struct igb_adapter),
 				   IGB_MAX_TX_QUEUES);
-
-	/* ... */
-
 	if (!netdev)
 		goto err_alloc_etherdev;
 
-	SET_MODULE_OWNER(netdev);
 	SET_NETDEV_DEV(netdev, &pdev->dev);
 
 	pci_set_drvdata(pdev, netdev);
@@ -332,34 +302,41 @@ static int igb_probe(struct pci_dev *pdev,
 	adapter->pdev = pdev;
 	hw = &adapter->hw;
 	hw->back = adapter;
-	adapter->port_num = hw->bus.func;
-	adapter->msg_enable = GENMASK(debug - 1, 0);
+	adapter->msg_enable = netif_msg_init(debug, DEFAULT_MSG_ENABLE);
 
 	/* ... */
 
-#ifdef HAVE_NET_DEVICE_OPS
-	netdev->netdev_ops = &igb_netdev_ops;
-#endif /* HAVE_NET_DEVICE_OPS */
+	// Получение адреса BAR сетевой карты для доступа к регистрам. 
+	adapter->io_addr = pci_iomap(pdev, 0, 0);
+	if (!adapter->io_addr)
+		goto err_ioremap;
+	hw->hw_addr = adapter->io_addr;
 
-	// Регистрирация поддерживаемых функций ethtool
+	// Регистрирация поддерживаемых функций сетевого интерфейса и ethtool.
+	netdev->netdev_ops = &igb_netdev_ops;
 	igb_set_ethtool_ops(netdev);
 
+	// Настройка частоты проверок работоспособности устройства.
+	netdev->watchdog_timeo = 5 * HZ;
+
 	/* ... */
 
-	// Настройка прерываний и подсистемы NAPI
-	// igb_sw_init вызывает igb_init_interrupt_scheme
-	// igb_init_interrupt_scheme вызывает igb_alloc_q_vectors
-	// igb_alloc_q_vectors вызывает igb_alloc_q_vector
-	// igb_alloc_q_vector вызывает netif_napi_add
+	// Настройка прерываний и подсистемы NAPI:
+	// igb_sw_init вызывает igb_init_interrupt_scheme;
+	// igb_init_interrupt_scheme вызывает igb_alloc_q_vectors;
+	// igb_alloc_q_vectors вызывает igb_alloc_q_vector;
+	// igb_alloc_q_vector вызывает netif_napi_add_config.
 	err = igb_sw_init(adapter);
 	if (err)
 		goto err_sw_init;
+
 
 	/* ... */
 
 	// Настройка наблюдателя
 	INIT_WORK(&adapter->reset_task, igb_reset_task);
 	INIT_WORK(&adapter->watchdog_task, igb_watchdog_task);
+
 
 	/* ... */
 
@@ -372,7 +349,7 @@ static int igb_probe(struct pci_dev *pdev,
 	igb_get_hw_control(adapter);
 
 	// Регистрация интерфейса в сетевой части ядра
-	strscpy(netdev->name, "eth%d", IFNAMSIZ);
+	strcpy(netdev->name, "eth%d");
 	err = register_netdev(netdev);
 	if (err)
 		goto err_register;
@@ -380,10 +357,10 @@ static int igb_probe(struct pci_dev *pdev,
 	/* ... */
 
 	// Инициализация технологии DCA
-#ifdef IGB_DCA
-	if (dca_add_requester(&pdev->dev) == E1000_SUCCESS) {
+#ifdef CONFIG_IGB_DCA
+	if (dca_add_requester(&pdev->dev) == 0) {
 		adapter->flags |= IGB_FLAG_DCA_ENABLED;
-		dev_info(pci_dev_to_dev(pdev), "DCA enabled\n");
+		dev_info(&pdev->dev, "DCA enabled\n");
 		igb_setup_dca(adapter);
 	}
 #endif
@@ -395,6 +372,7 @@ static int igb_probe(struct pci_dev *pdev,
 
 Далее с помощью функций из структур `net_device_ops` и `ethtool_ops` происходит настройка сетевого интерфейса из пространства пользователя. Так при выполнении команды `ip link set up` выполняется функция `igb_open` (`net_device_ops.ndo_open`). Она выполняет следующее:
 
+<!-- Заменить -->
 1. Получение настроек устройства;
 2. Отключение несущей, чтобы исключить параллельную работу интерфейса;
 3. Создание колец отправки и получения пакетов;
@@ -407,6 +385,7 @@ static int igb_probe(struct pci_dev *pdev,
 10. Включение возжности отправки пакетов;
 11. Запуск наблюдателя.
 
+<!-- Заменить -->
 ```c
 // src/igb_main.c
 // Пример запуска интерфейса
