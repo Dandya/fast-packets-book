@@ -86,7 +86,7 @@ DCA имеет два преимущества:
 
 #### Буферы сокетов
 
-Основной структурой для передачи сетевых данных в ядре «Linux» является структура `sk_buff`. Структуру можно разделить на две части: данные управления и данные пакета. Данные пакета могут находится как в самой структуре, так и в отдельных участках памяти (фрагментах). В самой структуре может хранится весь пакет, если он небольшой (менее 256 байт), в иных случаях в структуру записываются указатели на фрагменты данных [1].
+Основной структурой для передачи сетевых данных в ядре «Linux» является структура `sk_buff`. Структуру можно разделить на две части: данные управления и данные пакета. Данные пакета могут находится как в самой структуре, так и в отдельных участках памяти (фрагментах). В самой структуре может хранится весь пакет, если он небольшой (размер задаётся драйвером), в иных случаях в структуру записываются указатели на фрагменты данных [1].
 
 ```c
 // linux/include/linux/skbuff.h
@@ -209,18 +209,17 @@ module_init(igb_init_module);
 
 После того, как модуль будет установлен в ядро, запустится функция `igb_probe` (`igb_driver.probe`) для каждого поддерживаемого устройства, которая выполнит их инициализацию. Для драйвера «IGB» устройствами будут являться сетевые интерфейсы. Их инициализация состоит из следующих шагов:
 
-<!-- Заменить -->
 1. Инициализация PCI-устройства [6];
 2. Установка маски DMA (см. [DMA](#dma)) [7];
-3. Резервирование участков памяти [6];
-4. Захват шины PCI для управления устройством [6];
-5. Создание и заполнение структуры «net_device» для регистрации сетевого интерфейса [8];
+3. Захват шины PCI для управления устройством [6];
+4. Создание и заполнение структуры «net_device» для регистрации сетевого интерфейса [8];
+5. Получение адресов базовых регистров (Base Address Registers или BAR) сетевой карты для организации передачи данных между процессором и PCI-устройством;
 6. Регистрирация поддерживаемых функций ethtool (см. [настройка и тестирование](Settings-and-testing.md));
 7. Настройка прерываний и подсистемы NAPI (см. [NAPI](#napi)) [9];
 8. Настройка наблюдателя, который перезагружает сетевой интерфейс в случае проблем;
 9. Установка новых настроек интерфейса;
-10. Регистрация интерфейса в сетевой части ядра;
-11. Получение прямого доступа к управлению интерфейсом;
+10. Получение прямого доступа к управлению интерфейсом;
+11. Регистрация интерфейса в сетевой части ядра;
 12. Инициализация технологии DCA (см. [DCA](#dca)) [10];
 13. Множество других настроек в зависимости от конфигурации и устройства.
 
@@ -306,7 +305,7 @@ static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	/* ... */
 
-	// Получение адреса BAR сетевой карты для доступа к регистрам. 
+	// Получение адреса BAR сетевой карты для доступа к регистрам.
 	adapter->io_addr = pci_iomap(pdev, 0, 0);
 	if (!adapter->io_addr)
 		goto err_ioremap;
@@ -333,22 +332,22 @@ static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	/* ... */
 
-	// Настройка наблюдателя
+	// Настройка наблюдателя.
 	INIT_WORK(&adapter->reset_task, igb_reset_task);
 	INIT_WORK(&adapter->watchdog_task, igb_watchdog_task);
 
 
 	/* ... */
 
-	// Установка новых настроек интерфейса
+	// Установка новых настроек интерфейса.
 	igb_reset(adapter);
 
 	/* ... */
 
-	// Получение прямого доступа к управлению интерфейсом
+	// Получение прямого доступа к управлению интерфейсом.
 	igb_get_hw_control(adapter);
 
-	// Регистрация интерфейса в сетевой части ядра
+	// Регистрация интерфейса в сетевой части ядра.
 	strcpy(netdev->name, "eth%d");
 	err = register_netdev(netdev);
 	if (err)
@@ -356,7 +355,7 @@ static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	/* ... */
 
-	// Инициализация технологии DCA
+	// Инициализация технологии DCA.
 #ifdef CONFIG_IGB_DCA
 	if (dca_add_requester(&pdev->dev) == 0) {
 		adapter->flags |= IGB_FLAG_DCA_ENABLED;
@@ -372,7 +371,6 @@ static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 Далее с помощью функций из структур `net_device_ops` и `ethtool_ops` происходит настройка сетевого интерфейса из пространства пользователя. Так при выполнении команды `ip link set up` выполняется функция `igb_open` (`net_device_ops.ndo_open`). Она выполняет следующее:
 
-<!-- Заменить -->
 1. Получение настроек устройства;
 2. Отключение несущей, чтобы исключить параллельную работу интерфейса;
 3. Создание колец отправки и получения пакетов;
@@ -385,78 +383,78 @@ static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 10. Включение возжности отправки пакетов;
 11. Запуск наблюдателя.
 
-<!-- Заменить -->
 ```c
-// src/igb_main.c
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
 // Пример запуска интерфейса
 static int __igb_open(struct net_device *netdev, bool resuming)
 {
-	// Получение настроек устройства
+	// Получение настроек устройства.
 	struct igb_adapter *adapter = netdev_priv(netdev);
+	struct pci_dev *pdev = adapter->pdev;
 	struct e1000_hw *hw = &adapter->hw;
 
 	/* ... */
 
-	// Отключение несущей
+	// Отключение несущей.
 	netif_carrier_off(netdev);
 
-	// Создание колец отправки пакетов
+	// Создание колец отправки пакетов.
 	err = igb_setup_all_tx_resources(adapter);
 	if (err)
 		goto err_setup_tx;
 
-	// Создание колец получения пакетов
+	// Создание колец получения пакетов.
 	err = igb_setup_all_rx_resources(adapter);
 	if (err)
 		goto err_setup_rx;
 
-	// Включение несущей
+	// Включение несущей.
 	igb_power_up_link(adapter);
 
-	// Инициализация и настройка различных параметров интерфейса
+	// Инициализация и настройка различных параметров интерфейса.
 	igb_configure(adapter);
 
-	// Настройка прерываний
+	// Настройка прерываний.
 	err = igb_request_irq(adapter);
 	if (err)
 		goto err_req_irq;
 
-	// Установка количества очередей отправки пакетов
-	netif_set_real_num_tx_queues(netdev,
-				     adapter->vmdq_pools ? 1 :
-				     adapter->num_tx_queues);
+	// Установка количества очередей отправки пакетов.
+	err = netif_set_real_num_tx_queues(adapter->netdev,
+					   adapter->num_tx_queues);
+	if (err)
+		goto err_set_queues;
 
-	// Установка количества очередей получения пакетов
-	err = netif_set_real_num_rx_queues(netdev,
-					   adapter->vmdq_pools ? 1 :
+	// Установка количества очередей получения пакетов.
+	err = netif_set_real_num_rx_queues(adapter->netdev,
 					   adapter->num_rx_queues);
 	if (err)
 		goto err_set_queues;
 
-	// Перевод интерфейса в включенное состояние
+	// Перевод интерфейса в включенное состояние.
 	clear_bit(__IGB_DOWN, adapter->state);
 
-	// Включение NAPI для каждой очереди
+	// Включение NAPI для каждой очереди.
 	for (i = 0; i < adapter->num_q_vectors; i++)
 		napi_enable(&(adapter->q_vector[i]->napi));
 
 	/* ... */
 
-	// Включение прерываний
+	// Включение прерываний.
 	igb_irq_enable(adapter);
 
 	/* ... */
 
-	// Включение возжности отправки пакетов
+	// Включение возжности отправки пакетов.
 	netif_tx_start_all_queues(netdev);
 
 	/* ... */
 
-	// Запуск наблюдателя
+	// Запуск наблюдателя.
 	hw->mac.get_link_status = 1;
 	schedule_work(&adapter->watchdog_task);
 
-	return E1000_SUCCESS;
+	return 0;
 
 	/* ... */
 
@@ -470,86 +468,93 @@ int igb_open(struct net_device *netdev)
 
 Cоответсвенно при выполнении команды `ip link set down` будет вызвана функция `igb_close` (`net_device_ops.ndo_close`), которая выполнит следующее:
 
-1. Получение настроек устройства;
-2. Переключение устройства в состояние DOWN;
-3. Отключение несущей;
-4. Остановка отправки пакетов;
-5. Отключение NAPI;
-6. Отключение прерываний;
-7. Обновдение статистики интерфейса;
+1. Проверка того, что устройство доступно.
+2. Получение настроек устройства;
+3. Переключение устройства в состояние DOWN;
+4. Отключение несущей;
+5. Остановка отправки пакетов;
+6. Отключение NAPI;
+7. Отключение прерываний;
 8. Обновление настроек;
-9. Очистка колец отправки и приема пакетов;
-10. Освобождение прямого управления устройством;
-11. Освобождения памяти дли прерываний;
-12. Освобождение памяти для колец отправки и получения пакетов.
+9. Обновдение статистики интерфейса;
+10. Очистка колец отправки и приема пакетов;
+11. Освобождение прямого управления устройством;
+12. Освобождения памяти дли прерываний;
+13. Освобождение памяти для колец отправки и получения пакетов.
 
 ```c
-// src/igb_main.c
-// Пример выключения интерфейса
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
+// Пример выключения интерфейса.
 void igb_down(struct igb_adapter *adapter)
 {
 	/* ... */
 
-	// Переключение устройства в состояние DOWN
+	// Переключение устройства в состояние DOWN.
 	set_bit(__IGB_DOWN, adapter->state);
 
 	/* ... */
 
-	// Отключение несущей
+	// Отключение несущей.
 	netif_carrier_off(netdev);
-	// Остановка отправки пакетов
+
+	// Остановка отправки пакетов.
 	netif_tx_stop_all_queues(netdev);
 
 	/* ... */
 
-	// Отключение NAPI
-	for (i = 0; i < num_q_vectors; i++)
-		napi_disable(&(adapter->q_vector[i]->napi));
-
-	// Отключение прерываний
+	// Отключение прерываний.
 	igb_irq_disable(adapter);
 
 	/* ... */
 
-	// Обновдение статистики интерфейса
+	// Отключение NAPI.
+	for (i = 0; i < adapter->num_q_vectors; i++) {
+		if (adapter->q_vector[i]) {
+			napi_synchronize(&adapter->q_vector[i]->napi);
+			igb_set_queue_napi(adapter, i, NULL);
+			napi_disable(&adapter->q_vector[i]->napi);
+		}
+	}
+
+	/* ... */
+
+	// Обновление статистики интерфейса и служебной информации.
+	spin_lock(&adapter->stats64_lock);
 	igb_update_stats(adapter);
+	spin_unlock(&adapter->stats64_lock);
 
 	adapter->link_speed = 0;
 	adapter->link_duplex = 0;
 
 	/* ... */
 
-	// Обновление настроек
-	igb_reset(adapter);
+	// Обновление настроек.
+	if (!pci_channel_offline(adapter->pdev))
+		igb_reset(adapter);
 
 	/* ... */
 
-	// Очистка колец отправки и приема пакетов
+	// Очистка колец отправки и приема пакетов.
 	igb_clean_all_tx_rings(adapter);
 	igb_clean_all_rx_rings(adapter);
 
 #ifdef IGB_DCA
-	// Обновление DCA
+	// Обновление DCA.
 	igb_setup_dca(adapter);
 #endif
 }
 
 static int __igb_close(struct net_device *netdev, bool suspending)
 {
-	// Получение настроек устройства
+	// Получение настроек устройства.
 	struct igb_adapter *adapter = netdev_priv(netdev);
-#ifdef CONFIG_PM_RUNTIME
 	struct pci_dev *pdev = adapter->pdev;
-#endif /* CONFIG_PM_RUNTIME */
 
 	/* ... */
 
 	igb_down(adapter);
 
-	// Освобождение прямого управления устройством
-	igb_release_hw_control(adapter);
-
-	// Освобождения памяти дли прерываний
+	// Освобождения памяти дли прерываний.
 	igb_free_irq(adapter);
 
 	/* ... */
@@ -565,70 +570,72 @@ static int __igb_close(struct net_device *netdev, bool suspending)
 
 int igb_close(struct net_device *netdev)
 {
-	return __igb_close(netdev, false);
+	// Проверка того, что устройство доступно.
+	if (netif_device_present(netdev) || netdev->dismantle)
+		return __igb_close(netdev, false);
+	return 0;
 }
 ```
 
 При завершении работы сетевого драйвера для каждого интерфейса вызывается функция `igb_remove` (`igb_driver.remove`), которая освобождает управление сетевым интерфейсом. Её выполнение состоит из следующих шагов:
 
-1. Переключение устройства в состояние DOWN;
-2. Отключение наблюдателя;
-3. Отключение технологии DCA;
-4. Отключение прямого управления устройством;
-5. Удаление интерфейса из сетевой части ядра;
-6. Освобождение используемых прерываний;
-7. Освободение PCI-устройства.
+1. Получение настроек устройства;
+2. Переключение устройства в состояние DOWN;
+3. Отключение наблюдателя;
+4. Отключение технологии DCA;
+5. Отключение прямого управления устройством;
+6. Удаление интерфейса из сетевой части ядра;
+7. Освобождение используемых прерываний;
+8. Освобождение используемой памяти;
+9. Освободение PCI-устройства.
 
 ```c
-// src/igb_main.c
-// Пример удаления устройства
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
+// Пример удаления устройства.
 static void igb_remove(struct pci_dev *pdev)
 {
+	// Получение настроек устройства.
 	struct net_device *netdev = pci_get_drvdata(pdev);
 	struct igb_adapter *adapter = netdev_priv(netdev);
 	struct e1000_hw *hw = &adapter->hw;
 
 	/* ... */
 
-	// Переключение устройства в состояние DOWN
+	// Переключение устройства в состояние DOWN.
 	set_bit(__IGB_DOWN, adapter->state);
-	// Отключение наблюдателя
-	del_timer_sync(&adapter->watchdog_timer);
-	if (adapter->flags & IGB_FLAG_DETECT_BAD_DMA)
-		del_timer_sync(&adapter->dma_err_timer);
-	del_timer_sync(&adapter->phy_info_timer);
+	// Отключение наблюдателя.
+	timer_delete_sync(&adapter->watchdog_timer);
+	timer_delete_sync(&adapter->phy_info_timer);
 
 	cancel_work_sync(&adapter->reset_task);
 	cancel_work_sync(&adapter->watchdog_task);
 
-	// Отключение технологии DCA
-#ifdef IGB_DCA
+	// Отключение технологии DCA.
+#ifdef CONFIG_IGB_DCA
 	if (adapter->flags & IGB_FLAG_DCA_ENABLED) {
-		dev_info(pci_dev_to_dev(pdev), "DCA disabled\n");
+		dev_info(&pdev->dev, "DCA disabled\n");
 		dca_remove_requester(&pdev->dev);
 		adapter->flags &= ~IGB_FLAG_DCA_ENABLED;
-		E1000_WRITE_REG(hw, E1000_DCA_CTRL, E1000_DCA_CTRL_DCA_DISABLE);
+		wr32(E1000_DCA_CTRL, E1000_DCA_CTRL_DCA_MODE_DISABLE);
 	}
 #endif
 
-	/* ... */
-
-	// Отключение прямого управления устройством
+	// Отключение прямого управления устройством.
 	igb_release_hw_control(adapter);
 
-	// Удаление интерфейса из сетевой части ядра
+	// Удаление интерфейса из сетевой части ядра.
 	unregister_netdev(netdev);
 
-	// Освобождение используемых прерываний
+	// Освобождение используемых прерываний.
 	igb_clear_interrupt_scheme(adapter);
 
-	/* ... */
+	/* ... */.
 
 	// Освобождение используемой памяти
-	pci_release_selected_regions(pdev,
-				     pci_select_bars(pdev, IORESOURCE_MEM));
-
-	/* ... */
+	pci_iounmap(pdev, adapter->io_addr);
+	if (hw->flash_address)
+		iounmap(hw->flash_address);
+	pci_release_mem_regions(pdev);
 
 	kfree(adapter->mac_table);
 	kfree(adapter->shadow_vfta);
@@ -636,7 +643,7 @@ static void igb_remove(struct pci_dev *pdev)
 
 	/* ... */
 
-	// Освободение PCI-устройства
+	// Освободение PCI-устройства.
 	pci_disable_device(pdev);
 }
 ```
@@ -658,11 +665,26 @@ static void igb_remove(struct pci_dev *pdev)
 При возникновении прерывания выполняется функция `igb_msix_ring` (по-умолчанию, драйвер выбирает MSIX прерывание), которая указывает на выполнение функции `napi_poll` обработчиком `ksoftirqd/N` с помощью функции `napi_schedule` [11].
 
 ```c
-// src/igb_main.c
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
 // ITR — Interrupt Throttling Rate
 static void igb_write_itr(struct igb_q_vector *q_vector)
 {
-	/* .. */
+	// Получение настроек устройства.
+	struct igb_adapter *adapter = q_vector->adapter;
+	u32 itr_val = q_vector->itr_val & 0x7FFC;
+
+	// Проверка, что прерывания включены.
+	if (!q_vector->set_itr)
+		return;
+
+	// Сохрание значения частоты прерываний.
+	if (!itr_val)
+		itr_val = 0x4;
+
+	/* ... */
+
+	// Запись частоты прерываний в регистры устройства.
+	writel(itr_val, q_vector->itr_register);
 	// Отключение аппаратных прерываний при получении пакета
 	q_vector->set_itr = 0;
 }
@@ -672,19 +694,21 @@ static irqreturn_t igb_msix_ring(int irq, void *data)
 {
 	struct igb_q_vector *q_vector = data;
 
+	// Отключение прерываний.
 	igb_write_itr(q_vector);
 
+	// Указание на чтение пакетов.
 	napi_schedule(&q_vector->napi);
 
 	return IRQ_HANDLED;
 }
 ```
 
-Функция `napi_poll` задается при включеннии сетевого интерфейса. В драйвере «IGB» это происходит в функции `igb_alloc_q_vector`.
+Функция `napi_poll` задается при включеннии сетевого интерфейса. В драйвере «IGB» это происходит в функции `igb_alloc_q_vector` при инициализации работы интерфейса в функции `igb_probe`.
 
 ```c
-// src/igb_main.c
-// Пример установки функции napi_poll
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
+// Пример установки функции napi_poll.
 static int igb_alloc_q_vector(struct igb_adapter *adapter,
 			      unsigned int v_count, unsigned int v_idx,
 			      unsigned int txr_count, unsigned int txr_idx,
@@ -693,294 +717,325 @@ static int igb_alloc_q_vector(struct igb_adapter *adapter,
 	/* ... */
 
 	// Функцией napi_poll будет являться igb_poll
-	netif_napi_add(adapter->netdev, &q_vector->napi,
-		       igb_poll);
+	netif_napi_add_config(adapter->netdev, &q_vector->napi, igb_poll,
+			      v_idx);
 
 	/* ... */
 }
 ```
 
-Функция `igb_poll` выполняет не только приём пакетов, но и освобождение дескрипторов отправленных пакетов. Одним из параметров функции является число пакетов, которые могут быть прочитаны и обработаны за один вызов опроса. Такое число называется «бюджетом» и существует для того, чтобы функция при большом количестве пакетов имела предсказуемое время выполнения и делилась процессорным временем с обработчиками других прерываний.
+Функция `igb_poll` выполняет не только приём пакетов, но и освобождение дескрипторов отправленных пакетов. Одним из параметров функции является число пакетов, которые могут быть прочитаны и обработаны за один вызов опроса. Такое число называется «бюджетом» и существует для того, чтобы функция при большом количестве пакетов имела предсказуемое время выполнения и делилась процессорным временем с обработчиками других прерываний. Порядок работы функции следующий:
+
+1. Получение настроек очереди пакетов;
+2. Обновление данных DCA;
+3. Очистка дескрипторов отправленных пакетов;
+4. Проверка наличия открытого AF_XDP сокета;
+5. Обработка полученнных пакетов для передачи в AF_XDP или чтение полученных пакетов и отправка их верх по стеку;
+6. Включение аппаратных прерываний.
 
 ```c
-// src/igb_main.c
-// Пример функции опроса
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
+// Пример функции опроса.
 static int igb_poll(struct napi_struct *napi, int budget)
 {
+	// Получение настроек очереди пакетов.
 	struct igb_q_vector *q_vector = container_of(napi,
-						     struct igb_q_vector, napi);
+						     struct igb_q_vector,
+						     napi);
+	struct xsk_buff_pool *xsk_pool;
 	bool clean_complete = true;
+	int work_done = 0;
 
-	/* ... */
-
-	// Очистка дескрипторов отправленных пакетов
+	// Обновление данных DCA.
+#ifdef CONFIG_IGB_DCA
+	if (q_vector->adapter->flags & IGB_FLAG_DCA_ENABLED)
+		igb_update_dca(q_vector);
+#endif
+	// Очистка дескрипторов отправленных пакетов.
 	if (q_vector->tx.ring)
-		clean_complete = igb_clean_tx_irq(q_vector);
+		clean_complete = igb_clean_tx_irq(q_vector, budget);
 
-	// Чтение полученных пакетов и отправка из верх по стеку
-	if (q_vector->rx.ring)
-		clean_complete &= igb_clean_rx_irq(q_vector, budget);
+	if (q_vector->rx.ring) {
+		int cleaned;
 
-	/* ... */
+		// Проверка наличия открытого AF_XDP сокета.
+		xsk_pool = READ_ONCE(q_vector->rx.ring->xsk_pool);
+		cleaned = xsk_pool ?
+			// Обработка полученнных пакетов для передачи в AF_XDP.
+			igb_clean_rx_irq_zc(q_vector, xsk_pool, budget) :
+			// Чтение полученных пакетов и отправка их верх по стеку.
+			igb_clean_rx_irq(q_vector, budget);
+
+
+		work_done += cleaned;
+		if (cleaned >= budget)
+			clean_complete = false;
+	}
 
 	if (!clean_complete)
 		return budget;
 
-	napi_complete(napi);
-	// Включение аппаратных прерываний
-	igb_ring_irq_enable(q_vector);
+	// Включение аппаратных прерываний.
+	if (likely(napi_complete_done(napi, work_done)))
+		igb_ring_irq_enable(q_vector);
 
-	return 0;
+	return work_done;
 }
 ```
 
-Чтение пакетов происходит в функции `igb_clean_rx_irq`. Передаваемая структура `igb_q_vector` содержит в себе кольцевые буферы для приема и отправки пакетов, а также номер логического процессора, который обработывает эти очереди. Вся работа по чтению полученных пакетов происходит параллельно и независимо от других потоков исполнения.
+Чтение пакетов происходит в функции `igb_clean_rx_irq` (о `igb_clean_rx_irq_zc` см. в [анализе AF_XDP](AF_XDP.md)). Передаваемая структура `igb_q_vector` содержит в себе кольцевые буферы для приема и отправки пакетов, а также номер логического процессора, который обработывает эти очереди. Вся работа по чтению полученных пакетов происходит параллельно и независимо от других очередей.
 
 Структура `sk_buff` является основой сетевого стека ядра «Linux». В стуктуре содержится не только сам пакет и его метаданные, такие как длина и время получения, но множество других данных: типы заголовков, контрольные суммы заголовков и тд.
 
+Получение сетевых пакетов происходит согласно следующим этапам:
+
+1. Получение участков памяти с захваченными пакетами;
+2. Выполнение фильтрации пакетов с помощью XDP-программ;
+3. Построение структур `sk_buff` в случае их дальнейшей передачи;
+4. Обработка заголовков пакета и передача структуры `sk_buff` верх по сетевому стеку.
+
 ```c
-// src/igb_main.c
-// Пример функции обработки полученных пакетов
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
+// Пример функции обработки полученных пакетов.
 static bool igb_clean_rx_irq(struct igb_q_vector *q_vector, int budget)
 {
-	struct igb_ring *rx_ring = q_vector->rx.ring;
-	struct sk_buff *skb = rx_ring->skb;
 	unsigned int total_bytes = 0, total_packets = 0;
-	// Получение количества прочитанных дескрипторов
+	struct igb_adapter *adapter = q_vector->adapter;
+	struct igb_ring *rx_ring = q_vector->rx.ring;
+	// Получение количества прочитанных дескрипторов.
 	u16 cleaned_count = igb_desc_unused(rx_ring);
+	struct sk_buff *skb = rx_ring->skb;
+	unsigned int xdp_xmit = 0;
+	struct xdp_buff xdp;
+	u32 frame_sz = 0;
+	/* ... */
+	int xdp_res = 0;
 
-	do {
+	// Настройка буфера для xdp фильтра.
+#if (PAGE_SIZE < 8192)
+	frame_sz = igb_rx_frame_truesize(rx_ring, 0);
+#endif
+	xdp_init_buff(&xdp, frame_sz, &rx_ring->xdp_rxq);
+
+	// Когда бюджет исчерпан чтение заканчивается.
+	while (likely(total_packets < budget)) {
 		union e1000_adv_rx_desc *rx_desc;
+		struct igb_rx_buffer *rx_buffer;
+		ktime_t timestamp = 0;
+		int pkt_offset = 0;
+		unsigned int size;
+		void *pktbuf;
 
 		// Выделение новых страниц памяти при необходимости
-		// и настройка DMA
+		// и настройка DMA.
 		if (cleaned_count >= IGB_RX_BUFFER_WRITE) {
 			igb_alloc_rx_buffers(rx_ring, cleaned_count);
 			cleaned_count = 0;
 		}
 
-		// Получение текущего дескриптора для чтения
+		// Получение текущего дескриптора для чтения.
 		rx_desc = IGB_RX_DESC(rx_ring, rx_ring->next_to_clean);
 
-		// Проверка на наличие ошибок
-		if (!igb_test_staterr(rx_desc, E1000_RXD_STAT_DD))
-			break;
+		/* ... */
 
 		// Вызов этой функции гарантирует, что все операции чтения
 		// из оперативной памяти будут выполнены до действий
-		// после этой функции
-		rmb();
+		// после этой функции.
+		dma_rmb();
 
-		// Создание и заполнение структуры sk_buff
-		skb = igb_fetch_rx_buffer(rx_ring, rx_desc, skb);
+		// Получение памяти с данными пакета.
+		rx_buffer = igb_get_rx_buffer(rx_ring, size, &rx_buf_pgcnt);
+		pktbuf = page_address(rx_buffer->page) + rx_buffer->page_offset;
 
-		if (!skb)
+		/* ... */
+
+		if (!skb) {
+			unsigned char *hard_start = pktbuf - igb_rx_offset(rx_ring);
+			unsigned int offset = pkt_offset + igb_rx_offset(rx_ring);
+
+			// Подготовка буфера для xdp программы.
+			xdp_prepare_buff(&xdp, hard_start, offset, size, true);
+			xdp_buff_clear_frags_flag(&xdp);
+#if (PAGE_SIZE > 4096)
+			xdp.frame_sz = igb_rx_frame_truesize(rx_ring, size);
+#endif
+			// Запуск xdp программы с 3 исходами:
+			//   XDP_TX --- передача пакета в очередь отправки данного интерфейса;
+			//   XDP_REDIRECT --- передача пакета на другой интерфейс/сокет;
+			//   XDP_PASS --- отправка пакета верх по стеку (значение по умолчанию и равно 0).
+			xdp_res = igb_run_xdp(adapter, rx_ring, &xdp);
+		}
+
+		if (xdp_res) {
+			if (xdp_res & (IGB_XDP_TX | IGB_XDP_REDIR)) {
+				xdp_xmit |= xdp_res;
+				igb_rx_buffer_flip(rx_ring, rx_buffer, size);
+			} else {
+				rx_buffer->pagecnt_bias++;
+			}
+			total_packets++;
+			total_bytes += size;
+		} else if (skb)
+		// Добавление фрагмента пакета в sk_buff.
+			igb_add_rx_frag(rx_ring, rx_buffer, skb, size);
+		// Создание и заполнение структуры sk_buff.
+		else if (ring_uses_build_skb(rx_ring))
+			skb = igb_build_skb(rx_ring, rx_buffer, &xdp,
+					    timestamp);
+		else
+			skb = igb_construct_skb(rx_ring, rx_buffer,
+						&xdp, timestamp);
+
+		// Обработка возможной ошибки.
+		if (!xdp_res && !skb) {
+			rx_ring->rx_stats.alloc_failed++;
+			rx_buffer->pagecnt_bias++;
+			set_bit(IGB_RING_FLAG_RX_ALLOC_FAILED, &rx_ring->flags);
 			break;
+		}
 
+		// Возврат буфера памяти ядру для повторного использования.
+		igb_put_rx_buffer(rx_ring, rx_buffer, rx_buf_pgcnt);
 		cleaned_count++;
 
 		// Проверка того, что структура sk_buff содержит
-		// пакет не полностью, и переход к следующему дескриптору
+		// пакет не полностью, и переход к следующему дескриптору.
 		if (igb_is_non_eop(rx_ring, rx_desc))
 			continue;
 
 		// Проверка ошибок в ethernet заголовке и
-		// дополнение до 60 байт в случае необходимости
+		// дополнение до 60 байт в случае необходимости.
 		if (igb_cleanup_headers(rx_ring, rx_desc, skb)) {
 			skb = NULL;
 			continue;
 		}
 
-		// Для статистики
+		// Для статистики.
 		total_bytes += skb->len;
 
-		// Проверка контрольных сумм заголовков
+		// Проверка контрольных сумм заголовков.
 		igb_process_skb_fields(rx_ring, rx_desc, skb);
 
-#ifndef IGB_NO_LRO
-		// Объединение нескольких TCP пакетов в один
-		if (igb_can_lro(rx_ring, rx_desc, skb))
-			igb_lro_receive(q_vector, skb);
-		else
-#endif
 		// Выполнение GRO, что аналогично LRO, но используется
 		// сетевой стек ядра, а также передача sk_buff вверх по
-		// стеку ядра
-#ifdef HAVE_VLAN_RX_REGISTER
-			igb_receive_skb(q_vector, skb);
-#else
-			napi_gro_receive(&q_vector->napi, skb);
-#endif
-#ifndef NETIF_F_GRO
-		netdev_ring(rx_ring)->last_rx = jiffies;
-#endif
+		// стеку ядра.
+		napi_gro_receive(&q_vector->napi, skb);
 
-		// Очищение структуры не требуется
+		// Очищение структуры не требуется.
 		skb = NULL;
 
-		// Для статистики
+		// Для статистики.
 		total_packets++;
-
-		// Когда бюджет исчерпан чтение заканчивается
-	} while (likely(total_packets < budget));
+	}
 
 	// Если пакет не был полностью прочитан, то
-	// он сохраняется до следующего чтения
+	// он сохраняется до следующего чтения.
 	rx_ring->skb = skb;
 
-	// Обновление статистики очереди
-	rx_ring->rx_stats.packets += total_packets;
-	rx_ring->rx_stats.bytes += total_bytes;
-	q_vector->rx.total_packets += total_packets;
-	q_vector->rx.total_bytes += total_bytes;
+	// Выполнение передачи пакета в очередь TX или очередь RX
+	// другого интерфейса или сокета.
+	if (xdp_xmit)
+		igb_finalize_xdp(adapter, xdp_xmit);
+
+	// Обновление статистики очереди.
+	igb_update_rx_stats(q_vector, total_packets, total_bytes);
 
 	// Выделение новых страниц памяти при необходимости
-	// и настройка DMA
+	// и настройка DMA.
 	if (cleaned_count)
 		igb_alloc_rx_buffers(rx_ring, cleaned_count);
 
-	/* ... */
-
-	return (total_packets < budget);
+	return total_packets;
 }
 ```
 
-Рассмотрим теперь сам процесс создания структуры `sk_buff`. Это происходит в функции `igb_fetch_rx_buffer`, в которой для структуры выделяется память, а в функции `igb_add_rx_frag` в структуру копируется заголовок протокола «Ethernet» и либо копируется пакет полностью, если он менее 256 байт, либо добавляется указатель на данные пакета.
+Рассмотрим теперь сам процесс создания структуры `sk_buff`. Это происходит в функции `igb_construct_skb`, в которой для структуры выделяется память, а в функции `igb_add_rx_frag` в структуру копируется заголовок протокола «Ethernet» и либо копируется пакет полностью, если он менее 256 байт, либо добавляется указатель на данные пакета.
 
 Для обеспечения этого сетевая карта с помощью технологии DMA копирует пришедшие пакеты в буферы, которые выделяются драйвером и заменяются при обработке трафика. Таким образом, при работе драйвера пакеты копируются лишь однажды в общем случае.
 
+Также в драйверах с большей пропускной способностью перед созданием и заполнением структуры `sk_buff` происходит заполнение структуры `xdp_buff`, которая имеет указатель на пакет в буфере, что позволяет с помощью технологии «eBPF» перенаправлять трафик, исключая работу со структурой `sk_buff`.
+
+После передачи структуры `sk_buff` вверх по стеку протоколов данные пакета становятся доступны открытым сокетам [13].
+
 ```c
-// src/igb_main.c
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
 // Пример функции создания структуры sk_buff
-static struct sk_buff *igb_fetch_rx_buffer(struct igb_ring *rx_ring,
-					   union e1000_adv_rx_desc *rx_desc,
-					   struct sk_buff *skb)
+static struct sk_buff *igb_construct_skb(struct igb_ring *rx_ring,
+					 struct igb_rx_buffer *rx_buffer,
+					 struct xdp_buff *xdp,
+					 ktime_t timestamp)
 {
-	struct igb_rx_buffer *rx_buffer;
-	struct page *page;
-
-	// Получение буфера с данными, который также настроен
-	// на получение данных от устройства
-	rx_buffer = &rx_ring->rx_buffer_info[rx_ring->next_to_clean];
-
-	// Получение страницы памяти с данными
-	page = rx_buffer->page;
-	// Загрузка страницы в кэш процессора
-	prefetchw(page);
-
-	// Получение памяти для структуры sk_buff
-	if (likely(!skb)) {
-		void *page_addr = page_address(page) +
-				  rx_buffer->page_offset;
-
-		prefetch(page_addr);
-#if L1_CACHE_BYTES < 128
-		prefetch(page_addr + L1_CACHE_BYTES);
+	// Получение размера пакета из данных структуры xdp_buff.
+#if (PAGE_SIZE < 8192)
+	unsigned int truesize = igb_rx_pg_size(rx_ring) / 2;
+#else
+	unsigned int truesize = SKB_DATA_ALIGN(xdp->data_end -
+					       xdp->data_hard_start);
 #endif
+	unsigned int size = xdp->data_end - xdp->data;
+	unsigned int headlen;
+	struct sk_buff *skb;
 
-		// Выделение памяти из кеша системы
-		skb = netdev_alloc_skb_ip_align(rx_ring->netdev,
-						IGB_RX_HDR_LEN);
-		if (unlikely(!skb)) {
-			rx_ring->rx_stats.alloc_failed++;
-			return NULL;
-		}
+	// Загрузка данных пакета в кеш процессора.
+	net_prefetch(xdp->data);
 
-		prefetchw(skb->data);
-	}
+	// Выделение памяти из кеша системы под структуру sk_buff.
+	skb = napi_alloc_skb(&rx_ring->q_vector->napi, IGB_RX_HDR_LEN);
+	if (unlikely(!skb))
+		return NULL;
 
-	// Синхронизация данных DMA
-	dma_sync_single_range_for_cpu(rx_ring->dev,
-				      rx_buffer->dma,
-				      rx_buffer->page_offset,
-				      IGB_RX_BUFSZ,
-				      DMA_FROM_DEVICE);
+	// Сохранение времени получения пакета.
+	if (timestamp)
+		skb_hwtstamps(skb)->hwtstamp = timestamp;
 
-	// Добавление данных DMA в структуру sk_buff
-	if (igb_add_rx_frag(rx_ring, rx_buffer, rx_desc, skb)) {
-		// Настройка повторного использования страницы памяти
-		igb_reuse_rx_page(rx_ring, rx_buffer);
+	// Расчёт длина канального уровня и длины всего фрейма.
+	headlen = size;
+	if (headlen > IGB_RX_HDR_LEN)
+		headlen = eth_get_headlen(skb->dev, xdp->data, IGB_RX_HDR_LEN);
+
+	// Копирование в структуру только канального уровня, если пакет большой, иначе весь пакет.
+	memcpy(__skb_put(skb, headlen), xdp->data, ALIGN(headlen, sizeof(long)));
+
+	size -= headlen;
+	if (size) {
+		// Если пакет большой, то данные из памяти не копируются, а
+		// к структуре прикрепляются страницы памяти.
+		skb_add_rx_frag(skb, 0, rx_buffer->page,
+				(xdp->data + headlen) - page_address(rx_buffer->page),
+				size, truesize);
+
+		/* ... */
+
 	} else {
-		// Отключение страницы из DMA, для замены следующей,
-		// так как текущая теперь используется структурой sk_buff
-		dma_unmap_page(rx_ring->dev, rx_buffer->dma,
-			       PAGE_SIZE, DMA_FROM_DEVICE);
+		rx_buffer->pagecnt_bias++;
 	}
-
-	// Очищение буфера для последующего использования
-	rx_buffer->page = NULL;
 
 	return skb;
 }
 ```
 
 ```c
-// src/igb_main.c
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
 // Пример заполнения структуры sk_buff
-static bool igb_add_rx_frag(struct igb_ring *rx_ring,
+static void igb_add_rx_frag(struct igb_ring *rx_ring,
 			    struct igb_rx_buffer *rx_buffer,
-			    union e1000_adv_rx_desc *rx_desc,
-			    struct sk_buff *skb)
+			    struct sk_buff *skb,
+			    unsigned int size)
 {
-	struct page *page = rx_buffer->page;
-	// Указатель на полученный пакет
-	unsigned char *va = page_address(page) + rx_buffer->page_offset;
-	// Размер пакета
-	unsigned int size = le16_to_cpu(rx_desc->wb.upper.length);
-	// Определяется размер буфера
+	// Получение размера фрагмента.
 #if (PAGE_SIZE < 8192)
-	unsigned int truesize = IGB_RX_BUFSZ;
+	unsigned int truesize = igb_rx_pg_size(rx_ring) / 2;
 #else
-	unsigned int truesize = SKB_DATA_ALIGN(size);
+	unsigned int truesize = ring_uses_build_skb(rx_ring) ?
+				SKB_DATA_ALIGN(IGB_SKB_PAD + size) :
+				SKB_DATA_ALIGN(size);
 #endif
-	// Длина заголовка канального уровня
-	unsigned int pull_len;
-
-	// Если пакет был записан в несколько дескрипторов,
-	// то просто добавляем в sk_buff данные
-	if (unlikely(skb_is_nonlinear(skb)))
-		goto add_tail_frag;
-
+	// Добавление фрагмента в структуру sk_buff.
+	skb_add_rx_frag(skb, skb_shinfo(skb)->nr_frags, rx_buffer->page,
+			rx_buffer->page_offset, size, truesize);
 	/* ... */
-
-	// Копирование пакета в sk_buff, если пакет маленький
-	// Меньше 256 байт
-	if (likely(size <= IGB_RX_HDR_LEN)) {
-		memcpy(__skb_put(skb, size), va, ALIGN(size, sizeof(long)));
-
-		// Проверка возможности дальнейшего использовая текущей
-		// страницы памяти
-		if (likely(page_to_nid(page) == numa_node_id()))
-			return true;
-
-		// Уменьшение счётчика использования страницы
-		put_page(page);
-		return false;
-	}
-
-	// Получение длины заголовка Ethernet
-	pull_len = eth_get_headlen(skb->dev, va, IGB_RX_HDR_LEN);
-
-	// Копирование заголовка Ethernet в sk_buff
-	memcpy(__skb_put(skb, pull_len), va, ALIGN(pull_len, sizeof(long)));
-
-	va += pull_len;
-	size -= pull_len;
-
-add_tail_frag:
-	// Добавление указателя страницы и смещения до даных пакета в sk_buff
-	skb_add_rx_frag(skb, skb_shinfo(skb)->nr_frags, page,
-			(unsigned long)va & ~PAGE_MASK, size, truesize);
-
-	// Проверка возможности дальнейшего использовая текущей
-	// страницы памяти (есть ли ещё пакеты в странице)
-	return igb_can_reuse_rx_page(rx_buffer, page, truesize);
 }
 ```
-
-Также стоит уточнить, что в драйверах с большей пропускной способностью перед созданием и заполнением структуры `sk_buff` происходит заполнение структуры `xdp_buff`, которая имеет указатель на пакет в буфере, что позволяет с помощью технологии «EBPF» перенаправлять трафик, исключая работу со структурой `sk_buff`.
-
-После передачи структуры `sk_buff` вверх по стеку протоколов данные пакета становятся доступны открытым сокетам [13].
 
 ### Отправка сетевых пакетов
 
@@ -988,54 +1043,45 @@ add_tail_frag:
 
 Очередь отправки пакета может определяться номером логического процессора, на котором была сформирована структура `sk_buff`, настройкой сокета или настройкой пользователя.
 
+Отправка сетевых пакетов происходит согласно следующим этапам:
+
+1. Получение необходимых структур;
+2. Определение очереди (кольца) для отправки;
+3. Обработка заголовков пакета различных уровней;
+4. Передача пакетов устройству с помощью DMA.
+
 ```c
-// src/igb_main.c
-// Пример функции определения очереди для отправки
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
+// Пример функции определения очереди для отправки.
 static inline struct igb_ring *igb_tx_queue_mapping(struct igb_adapter *adapter,
 						    struct sk_buff *skb)
 {
 	// Значение skb->queue_mapping устанавливается
-	// выше по стеку вызовов
+	// выше по стеку вызовов.
 	unsigned int r_idx = skb->queue_mapping;
 
 	if (r_idx >= adapter->num_tx_queues)
 		r_idx = r_idx % adapter->num_tx_queues;
 
 	// Обычно это номер логического процессора,
-	// на котором создана структура sk_buff
+	// на котором создана структура sk_buff.
 	return adapter->tx_ring[r_idx];
 }
 ```
 
 ```c
-// src/igb_main.c
-// Пример функции отправки пакета
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
+// Пример функции отправки пакета.
 static netdev_tx_t igb_xmit_frame(struct sk_buff *skb,
 				  struct net_device *netdev)
 {
 	// Указатель на структуру igb_adapter является одним из
-	// полей структуры net_device
+	// полей структуры net_device.
 	struct igb_adapter *adapter = netdev_priv(netdev);
 
-	// Если интерфейс отключён, то пакет не будет отправлен
-	if (test_bit(__IGB_DOWN, adapter->state)) {
-		// Освобождает память для sk_buff
-		dev_kfree_skb_any(skb);
-		return NETDEV_TX_OK;
-	}
-
-	// Если пакета нет, то он не будет отправлен
-	if (skb->len <= 0) {
-		dev_kfree_skb_any(skb);
-		return NETDEV_TX_OK;
-	}
-
 	// Дополнение до 17 байт согласно спецификации
-	if (skb->len < 17) {
-		if (skb_padto(skb, 17))
-			return NETDEV_TX_OK;
-		skb->len = 17;
-	}
+	if (skb_put_padto(skb, 17))
+		return NETDEV_TX_OK;
 
 	// Определение кольца по текущему логическому процессору
 	// и передача пакета в это кольцо
@@ -1044,56 +1090,57 @@ static netdev_tx_t igb_xmit_frame(struct sk_buff *skb,
 ```
 
 ```c
-// src/igb_main.c
-// Пример функции для определения возможности отправки пакета
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
+// Пример функции для определения возможности отправки пакета.
 netdev_tx_t igb_xmit_frame_ring(struct sk_buff *skb,
 				struct igb_ring *tx_ring)
 {
 	struct igb_tx_buffer *first;
 	int tso;
 	u32 tx_flags = 0;
-#if PAGE_SIZE > IGB_MAX_DATA_PER_TXD
 	unsigned short f;
-#endif
 	// Получение количества дескрипторов для
-	// отправки заголовков пакета
+	// отправки заголовков пакета.
 	u16 count = TXD_USE_COUNT(skb_headlen(skb));
 	__be16 protocol = vlan_get_protocol(skb);
 	u8 hdr_len = 0;
 
-#if PAGE_SIZE > IGB_MAX_DATA_PER_TXD
 	// Добавление количество дескрипторов
 	// для флагментов пакета, если
-	// пакет большой
+	// пакет большой.
 	for (f = 0; f < skb_shinfo(skb)->nr_frags; f++)
-		count += TXD_USE_COUNT(skb_shinfo(skb)->frags[f].size);
-#else
-	count += skb_shinfo(skb)->nr_frags;
-#endif
-	// Проверка доступности количества дескрипторов
+		count += TXD_USE_COUNT(skb_frag_size(
+						&skb_shinfo(skb)->frags[f]));
+
+	// Проверка доступности количества дескрипторов.
 	if (igb_maybe_stop_tx(tx_ring, count + 3)) {
 		return NETDEV_TX_BUSY;
 	}
 
-	// Заполнение буфера для отправки пакета
+	// Проверка возжности отправки пакета.
+	if (unlikely(test_bit(IGB_RING_FLAG_TX_DISABLED, &tx_ring->flags)))
+		return NETDEV_TX_BUSY;
+
+	// Заполнение буфера для отправки пакета.
 	first = &tx_ring->tx_buffer_info[tx_ring->next_to_use];
+	first->type = IGB_TYPE_SKB;
 	first->skb = skb;
 	first->bytecount = skb->len;
 	first->gso_segs = 1;
 
 	/* ... */
 
-	skb_tx_timestamp(skb);
+	// Добавление заголовка VLAN.
 	if (skb_vlan_tag_present(skb)) {
 		tx_flags |= IGB_TX_FLAGS_VLAN;
 		tx_flags |= (skb_vlan_tag_get(skb) << IGB_TX_FLAGS_VLAN_SHIFT);
 	}
 
-	// Установка протокола и флагов
+	// Установка протокола и флагов.
 	first->tx_flags = tx_flags;
 	first->protocol = protocol;
 
-	// По возможности разделяет данные протокола TCP
+	// По возможности разделяет данные протокола TCP.
 	tso = igb_tso(tx_ring, first, &hdr_len);
 	if (tso < 0)
 		goto out_drop;
@@ -1103,18 +1150,14 @@ netdev_tx_t igb_xmit_frame_ring(struct sk_buff *skb,
 	/* ... */
 
 	// Отправка пакета с помощью DMA
-	igb_tx_map(tx_ring, first, hdr_len);
-
-	/* ... */
-
-	// Проверка работоспособности устройства
-	igb_maybe_stop_tx(tx_ring, DESC_NEEDED);
+	if (igb_tx_map(tx_ring, first, hdr_len))
+		goto cleanup_tx_tstamp;
 
 	return NETDEV_TX_OK;
 
 out_drop:
-	// Освободение использованных ресурсов
-	igb_unmap_and_free_tx_resource(tx_ring, first);
+	// Освободение использованных ресурсов.
+	dev_kfree_skb_any(first->skb);
 
 	/* ... */
 
@@ -1123,8 +1166,8 @@ out_drop:
 ```
 
 ```c
-// src/igb_main.c
-// Пример функции отправки пакета
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
+// Пример функции управления памятью при отправке пакета.
 static int igb_tx_map(struct igb_ring *tx_ring,
 		      struct igb_tx_buffer *first,
 		      const u8 hdr_len)
@@ -1139,64 +1182,29 @@ static int igb_tx_map(struct igb_ring *tx_ring,
 	u32 cmd_type = igb_tx_cmd_type(skb, tx_flags);
 	u16 i = tx_ring->next_to_use;
 
-	// Получение текущего дескриптора кольца отправки
+	// Получение текущего дескриптора кольца отправки.
 	tx_desc = IGB_TX_DESC(tx_ring, i);
 
-	// Настройка дескриптора: расчёт контрольных сумм, установка длин
+	// Настройка дескриптора: расчёт контрольных сумм, установка длин.
 	igb_tx_olinfo_status(tx_ring, tx_desc, tx_flags, skb->len - hdr_len);
 
 	size = skb_headlen(skb);
 	data_len = skb->data_len;
 
-	// Установка памяти DMA для последующего её чтения устройством
+	// Установка памяти DMA для последующего её чтения устройством.
 	dma = dma_map_single(tx_ring->dev, skb->data, size, DMA_TO_DEVICE);
 
 	tx_buffer = first;
 
-	// Установка памяти DMA на каждый фрагмент пакета
+	// Установка памяти DMA на каждый фрагмент пакета.
 	for (frag = &skb_shinfo(skb)->frags[0];; frag++) {
 		if (dma_mapping_error(tx_ring->dev, dma))
 			goto dma_error;
 
-		/* record length, and DMA address */
 		dma_unmap_len_set(tx_buffer, len, size);
 		dma_unmap_addr_set(tx_buffer, dma, dma);
 
-		tx_desc->read.buffer_addr = cpu_to_le64(dma);
-
-		while (unlikely(size > IGB_MAX_DATA_PER_TXD)) {
-			tx_desc->read.cmd_type_len =
-				cpu_to_le32(cmd_type ^ IGB_MAX_DATA_PER_TXD);
-
-			i++;
-			tx_desc++;
-			if (i == tx_ring->count) {
-				tx_desc = IGB_TX_DESC(tx_ring, 0);
-				i = 0;
-			}
-			tx_desc->read.olinfo_status = 0;
-
-			dma += IGB_MAX_DATA_PER_TXD;
-			size -= IGB_MAX_DATA_PER_TXD;
-
-			tx_desc->read.buffer_addr = cpu_to_le64(dma);
-		}
-
-		if (likely(!data_len))
-			break;
-
-		tx_desc->read.cmd_type_len = cpu_to_le32(cmd_type ^ size);
-
-		i++;
-		tx_desc++;
-		if (i == tx_ring->count) {
-			tx_desc = IGB_TX_DESC(tx_ring, 0);
-			i = 0;
-		}
-		tx_desc->read.olinfo_status = 0;
-
-		size = skb_frag_size(frag);
-		data_len -= size;
+		/* ... */
 
 		dma = skb_frag_dma_map(tx_ring->dev, frag, 0,
 				       size, DMA_TO_DEVICE);
@@ -1204,35 +1212,36 @@ static int igb_tx_map(struct igb_ring *tx_ring,
 		tx_buffer = &tx_ring->tx_buffer_info[i];
 	}
 
-	// Установка бит окончания отправки пакета./
+	// Установка бит окончания отправки пакета.
 	cmd_type |= size | IGB_TXD_DCMD;
 	tx_desc->read.cmd_type_len = cpu_to_le32(cmd_type);
 
-	// Обновление статистики сетевого интерфейса
+	// Обновление статистики сетевого интерфейса.
 	netdev_tx_sent_queue(txring_txq(tx_ring), first->bytecount);
 	first->time_stamp = jiffies;
 
+	// Установка времени отправки пакета.
+	skb_tx_timestamp(skb);
+
 	// Барьер памяти, который гарантирует, что все записанные
-	// выше данные были записаны в память
+	// выше данные были записаны в память.
 	wmb();
 
 	// Указывает на последний дескриптор пакета
 	// Поле используется при очистке дескрипторов
-	// и гарантии отправки пакета
+	// и гарантии отправки пакета.
 	first->next_to_watch = tx_desc;
 
 	i++;
 	if (i == tx_ring->count)
 		i = 0;
 
-	// Установка индекса следующего дескриптора
+	// Установка индекса следующего дескриптора.
 	tx_ring->next_to_use = i;
-
-	skb_tx_timestamp(skb);
 
 	// Запись в регистр хвоста индекса, до которого
 	// устройство будет читать дескрипторы и
-	// отправлять данные
+	// отправлять данные.
 	writel(i, tx_ring->tail);
 
 	/* ... */
@@ -1250,23 +1259,28 @@ dma_error:
 При работе функции `napi_poll` происходит очищение дескрипторов, через которые происходила отправка пакетов, чтобы заново воспользоваться ими.
 
 ```c
-// src/igb_main.c
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
 // Пример функции очиски дескрипторов отправки пакетов
 static bool igb_clean_tx_irq(struct igb_q_vector *q_vector)
 {
-	struct igb_adapter *adapter = q_vector->adapter;
-	struct igb_ring *tx_ring = q_vector->tx.ring;
-	struct igb_tx_buffer *tx_buffer;
-	union e1000_adv_tx_desc *tx_desc;
 	unsigned int total_bytes = 0, total_packets = 0;
+	struct igb_adapter *adapter = q_vector->adapter;
 	unsigned int budget = q_vector->tx.work_limit;
+	struct igb_ring *tx_ring = q_vector->tx.ring;
 	unsigned int i = tx_ring->next_to_clean;
+	union e1000_adv_tx_desc *tx_desc;
+	struct igb_tx_buffer *tx_buffer;
+	struct xsk_buff_pool *xsk_pool;
+	int cpu = smp_processor_id();
+	bool xsk_xmit_done = true;
+	struct netdev_queue *nq;
+	u32 xsk_frames = 0;
 
-	// Проверка состояние сетевого интерфейса
+	// Проверка состояние сетевого интерфейса.
 	if (test_bit(__IGB_DOWN, adapter->state))
 		return true;
 
-	// Получение следующего буфера для очиски
+	// Получение следующего буфера для очиски.
 	tx_buffer = &tx_ring->tx_buffer_info[i];
 	tx_desc = IGB_TX_DESC(tx_ring, i);
 	i -= tx_ring->count;
@@ -1275,37 +1289,43 @@ static bool igb_clean_tx_irq(struct igb_q_vector *q_vector)
 		union e1000_adv_tx_desc *eop_desc = tx_buffer->next_to_watch;
 
 		// Если дескриптор не установлен, то отправка ещё не окончена
-		// или её нет
+		// или её нет.
 		if (!eop_desc)
 			break;
 
-		// Барьер памяти, который гарантирует чтение операций выше
+		// Барьер памяти, который гарантирует чтение операций выше.
 		smp_rmb();
 
-		// Если флаг не установлен, то отправка ещё не окончена
+		// Если флаг не установлен, то отправка ещё не окончена.
 		if (!(eop_desc->wb.status & cpu_to_le32(E1000_TXD_STAT_DD)))
 			break;
 
 		tx_buffer->next_to_watch = NULL;
 
-		// Обновление статистики
+		// Обновление статистики.
 		total_bytes += tx_buffer->bytecount;
 		total_packets += tx_buffer->gso_segs;
 
 		// Уменьшение счётчика пользователей sk_buff
-		// и очиска памяти
-		dev_kfree_skb_any(tx_buffer->skb);
+		// и очиска памяти.
+		if (tx_buffer->type == IGB_TYPE_SKB) {
+			napi_consume_skb(tx_buffer->skb, napi_budget);
+		} else if (tx_buffer->type == IGB_TYPE_XDP) {
+			xdp_return_frame(tx_buffer->xdpf);
+		} else if (tx_buffer->type == IGB_TYPE_XSK) {
+			xsk_frames++;
+			goto skip_for_xsk;
+		}
 
-		// Отключение памяти из DMA
+		// Отключение памяти из DMA.
 		dma_unmap_single(tx_ring->dev,
 				 dma_unmap_addr(tx_buffer, dma),
 				 dma_unmap_len(tx_buffer, len),
 				 DMA_TO_DEVICE);
 
-		tx_buffer->skb = NULL;
 		dma_unmap_len_set(tx_buffer, len, 0);
 
-		// Очистка каждого дескриптора до последнего
+		// Очистка каждого дескриптора до последнего.
 		while (tx_desc != eop_desc) {
 			tx_buffer++;
 			tx_desc++;
@@ -1316,7 +1336,6 @@ static bool igb_clean_tx_irq(struct igb_q_vector *q_vector)
 				tx_desc = IGB_TX_DESC(tx_ring, 0);
 			}
 
-			/* unmap any remaining paged data */
 			if (dma_unmap_len(tx_buffer, len)) {
 				dma_unmap_page(tx_ring->dev,
 					       dma_unmap_addr(tx_buffer, dma),
@@ -1326,7 +1345,8 @@ static bool igb_clean_tx_irq(struct igb_q_vector *q_vector)
 			}
 		}
 
-		// Переход к следующему дескриптору
+skip_for_xsk:
+		// Переход к следующему дескриптору.
 		tx_buffer++;
 		tx_desc++;
 		i++;
@@ -1336,26 +1356,41 @@ static bool igb_clean_tx_irq(struct igb_q_vector *q_vector)
 			tx_desc = IGB_TX_DESC(tx_ring, 0);
 		}
 
-		// Загрузка дескриптора в кэш-память процессора
+		// Загрузка дескриптора в кэш-память процессора.
 		prefetch(tx_desc);
 
 		budget--;
 	} while (likely(budget));
 
-	// Обновдение статистики
+	// Обновдение статистики.
 	netdev_tx_completed_queue(txring_txq(tx_ring),
 				  total_packets, total_bytes);
 
 	i += tx_ring->count;
 	tx_ring->next_to_clean = i;
+	u64_stats_update_begin(&tx_ring->tx_syncp);
 	tx_ring->tx_stats.bytes += total_bytes;
 	tx_ring->tx_stats.packets += total_packets;
+	u64_stats_update_end(&tx_ring->tx_syncp);
 	q_vector->tx.total_bytes += total_bytes;
 	q_vector->tx.total_packets += total_packets;
 
-	/* ... */
+	// Обработка отправки пакетов из кольца TX сокета AF_XDP.
+	xsk_pool = READ_ONCE(tx_ring->xsk_pool);
+	if (xsk_pool) {
+		if (xsk_frames)
+			xsk_tx_completed(xsk_pool, xsk_frames);
+		if (xsk_uses_need_wakeup(xsk_pool))
+			xsk_set_tx_need_wakeup(xsk_pool);
 
-	return !!budget;
+		nq = txring_txq(tx_ring);
+		__netif_tx_lock(nq, cpu);
+		txq_trans_cond_update(nq);
+		xsk_xmit_done = igb_xmit_zc(tx_ring, xsk_pool);
+		__netif_tx_unlock(nq);
+	}
+
+	return !!budget && xsk_xmit_done;
 }
 ```
 
