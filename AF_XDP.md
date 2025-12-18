@@ -56,17 +56,37 @@ static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 В работе системы ядро выполняет следующие функции:
 
 - Настройка отображения памяти между пространством ядра и пространством пользователя;
-- Настройку DMA для передачи пакетов;
-- Загрузку в ядро eBPF программы;
-- Управление памятью UMEM и очередями RX, TX и тд.
+- Настройка DMA для передачи пакетов;
+- Загрузка в ядро XDP-программы;
+- Управление памятью `UMEM`, а также очередями `RX`, `TX`, `FR`, `CR`.
 
 Тогда как драйвер реализует следующие функции:
 
 - Обработка прерываний;
-- Передача пакетов в сокет «AF_XDP» или верх по сетевому стеку.
+- Фильтрация пакетов с помощью XDP.
 
 
 Таким образом, большинство драйверов могут реализовать «zero-copy» режим передачи пакетов без необходимости вностить множество изменений в исходный код драйвера и реализовывать доступ из пространства пользователя.
+
+Для изучения процесса передачи сетевых пакетов иследует обратится к исходному коду системы в файле `contrib/linux-6.18/net/xdp/xsk.c` и к части функций драйвера «IGB»: `contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c` и `contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_xsk.c`.
+
+Получение и отправка пакетов происходит с помощью работы с участком памяти `UMEM`, которая становится доступна драйверу при загрузке в него XDP программы распределения пакетов.
+
+```c
+// contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_xsk.c
+// Пример функции установки памяти UMEM и очередей для очереди пакетов `qid`.
+int igb_xsk_pool_setup(struct igb_adapter *adapter,
+		       struct xsk_buff_pool *pool,
+		       u16 qid)
+{
+	return pool ?
+			// Установка памяти UMEM и очередей.
+			igb_xsk_pool_enable(adapter, pool, qid) :
+			// Их удаление.
+			igb_xsk_pool_disable(adapter, qid);
+}
+
+```
 
 Сначала рассмотрим процесс получения пакета в `XDP_DRV`.
 
@@ -74,9 +94,6 @@ static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 В процессе описания функции ``
 
-Изучить contrib/linux-6.18/net/xdp/xsk.c
-Изучить contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_main.c
-Изучить contrib/linux-6.18/drivers/net/ethernet/intel/igb/igb_xsk.c
 
 ## Разбор примеров
 
@@ -95,3 +112,8 @@ apt install clang libbpf-dev pkg-config
 ### Настройка сокета
 
 Чтобы захватывать пакеты с помощью системы «AF_XDP», необходимо перевести работу драйвера в 
+
+## Источники
+
+1. [Magnus Karlsson and Bjorn T «The Path to DPDK Speeds for AF XDP»](http://oldvger.kernel.org/lpc_net2018_talks/lpc18_paper_af_xdp_perf-v2.pdf)
+2. [Документация ядра «Linux» о «AF_XDP»](https://docs.kernel.org/networking/af_xdp.html)
