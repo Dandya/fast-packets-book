@@ -335,6 +335,7 @@ enter_xsks_into_map(void) {
 		fprintf(stderr, "ERROR: bss map found!\n");
 		exit(EXIT_FAILURE);
 	}
+
 	// Обновление количества сокетов (переменной `num_socks`) в XDP программе.
 	// Подробнее: https://docs.ebpf.io/ebpf-library/libbpf/userspace/bpf_map_update_elem/
 	if (bpf_map_update_elem(bpf_map__fd(data_map), &key, &num_socks, BPF_ANY)) {
@@ -524,11 +525,11 @@ rx_only(struct socket_info* xsk) {
 	// Подробнее: https://docs.ebpf.io/ebpf-library/libxdp/functions/xsk_ring_cons__peek/
 	rcvd = xsk_ring_cons__peek(&xsk->rx, opt_batch_size, &idx_rx);
 	if (!rcvd) {
-		// if (opt_busy_poll || xsk_ring_prod__needs_wakeup(&xsk->umem->pr)) {
-		// 	// Уведомление ядра об ожидании пакетов.
-		// 	// Подробнее: https://man7.org/linux/man-pages/man3/recvfrom.3p.html
-		// 	recvfrom(xsk_socket__fd(xsk->xsk), NULL, 0, MSG_DONTWAIT, NULL, NULL);
-		// }
+		if (opt_busy_poll || xsk_ring_prod__needs_wakeup(&xsk->umem->pr)) {
+			// Уведомление ядра об ожидании пакетов.
+			// Подробнее: https://man7.org/linux/man-pages/man3/recvfrom.3p.html
+			recvfrom(xsk_socket__fd(xsk->xsk), NULL, 0, MSG_DONTWAIT, NULL, NULL);
+		}
 		return;
 	}
 

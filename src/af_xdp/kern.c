@@ -21,8 +21,12 @@ static unsigned int num_pkts = 0; // Количество захваченных
 SEC("xdp") // Расположение функции в секции "xdp_sock" ELF файла.
 int xdp_sock_prog(struct xdp_md *ctx) { // Структура xdp_md хранит данные пакета.
 	const char fmt[] = "NUM %d for %d\n";
-  if ((++num_pkts % 10) == 0)
+  // Отправка каждого 10-го пакета вверх по сетевому стеку
+  // и вывод информации о количестве захваченных пакетов.
+  if ((++num_pkts % 10) == 0) {
     bpf_trace_printk(fmt, sizeof(fmt), num_pkts, num_socks);
+    return XDP_PASS;
+  }
   // Функция bpf_redirect_map заполняет ряд структур в ядре,
   // что в случае успеха возвращает значение XDP_REDIRECT.
   // Вызывающая сторона в случае значения XDP_REDIRECT вызывает
