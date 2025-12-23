@@ -172,6 +172,9 @@ make install
 export PATH=$PATH:/usr/sbin
 ```
 
+<!-- ## Установка Xdptool
+
+## Установка DPDK -->
 
 ## Полезные материалы
 
