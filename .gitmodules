@@ -7,3 +7,6 @@
 [submodule "contrib/cbpf-native"]
 	path = contrib/cbpf-native
 	url = https://gitflic.ru/project/dandya353/cbpf-native.git
+[submodule "contrib/dpdk"]
+	path = contrib/dpdk
+	url = https://github.com/DPDK/dpdk.git
