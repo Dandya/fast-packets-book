@@ -1,5 +1,6 @@
 
 #include <errno.h>
+#include <getopt.h>
 #include <pcap.h>
 #include <stdbool.h>
 #include <stdint.h>

@@ -492,6 +492,7 @@ create_socket(struct umem_info* umem,
 
 	rxr = rx ? &xsk->rx : NULL;
 	txr = tx ? &xsk->tx : NULL;
+
 	// Создание сокета на очереди `queue_id` сетевого интерфейса c индексом `opt_if`.
 	// Подробнее: https://docs.ebpf.io/ebpf-library/libxdp/functions/xsk_socket__create
 	ret = xsk_socket__create(&xsk->xsk, opt_if, queue_id, umem->umem, rxr, txr, &cfg);
