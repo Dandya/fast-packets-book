@@ -158,7 +158,7 @@ port_init(uint16_t port, struct rte_mempool *mbuf_pool) {
 	if (dev_info.tx_offload_capa & RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE)
 		port_conf.txmode.offloads |= RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
 
-	// Настройка сетевого интерфейса согласно параметрам.
+	// Настройка колец `RX` и `TX` сетевого интерфейса согласно параметрам.
 	// Подробнее: https://doc.dpdk.org/api/rte__ethdev_8h.html#a1a7d3a20b102fee222541fda50fd87bd
 	retval = rte_eth_dev_configure(port, rx_queue_count, tx_queue_count, &port_conf);
 	if (retval != 0)

@@ -405,7 +405,7 @@ int do_xdp_generic(const struct bpf_prog *xdp_prog, struct sk_buff **pskb)
 // contrib/linux-6.18/net/xdp/xsk.c
 // Пример функций работы с кольцом RX.
 
-// Вызывается xdp_do_redirect и настраивает кольца.
+// Вызывается xdp_do_redirect и настраивает кольца в режиме XDP_DRV.
 static int __xsk_rcv_zc(struct xdp_sock *xs, struct xdp_buff_xsk *xskb, u32 len,
 			u32 flags)
 {
@@ -425,7 +425,6 @@ static int __xsk_rcv_zc(struct xdp_sock *xs, struct xdp_buff_xsk *xskb, u32 len,
 	xp_release(xskb);
 	return 0;
 }
-
 
 // Вызывается функцией xdp_do_generic_redirect и копирует пакет
 // в режиме XDP_SKB.
