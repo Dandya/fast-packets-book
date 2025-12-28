@@ -9,10 +9,10 @@ CFLAGS += -O2 $(shell $(PKGCONF) --cflags libdpdk)
 LDFLAGS_SHARED = $(shell $(PKGCONF) --libs libdpdk)
 LDFLAGS_STATIC = $(shell $(PKGCONF) --static --libs libdpdk)
 
-all: test_dpdk
+all: dpdk_user
 
-test_dpdk:  test.c
-		$(CC) $(CFLAGS) test.c -o $@ $(LDFLAGS) $(LDFLAGS_STATIC)
+dpdk_user: user.c
+		$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS) $(LDFLAGS_STATIC)
 
 clean:
-	rm test_dpdk || true
+	rm dpdk_user || true

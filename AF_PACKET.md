@@ -218,6 +218,7 @@ out:
 ```
 
 Отправка пакета происходит в функции `packet_sendmsg`. Процесс передачи проходит следующие шаги:
+
 1. Пользовательский процесс использует системные вызовы `sendmsg`, `sendto` или `write`.
 2. Контекст пользовательского процесса переходит в контекст ядра и вызывает функцию `packet_sendmsg`, которая хранится в структуре `sock`;
 3. Создание структуры `sk_buff`;
@@ -1117,7 +1118,7 @@ send_pkts(int sock_fd, int id) {
 		0x05, 0xb4, 0x04, 0x02, 0x08, 0x0a, 0xfa, 0xf8,
 		0x71, 0xe3, 0x00, 0x00, 0x00, 0x00, 0x01, 0x03,
 		0x03, 0x07
-	}; // 192.168.1.2	192.168.0.10	TCP	74	35980 → 80 [SYN] Seq=0 Win=64240
+	}; // 192.168.1.2 192.168.0.10 TCP 74 35980 → 80 [SYN] Seq=0 Win=64240
 
 		LOCK_PRINT();
 		printf("Send start from ID: %d\n", id);
@@ -1299,6 +1300,5 @@ send_pkts(int sock_fd, int id, struct rings_buff* rings) {
 
 1. [Описание системы «AF_PACKET»](https://man7.org/linux/man-pages/man7/packet.7.html)
 2. [Документация ядра «Linux» о механизме «PACKET_MMAP»](https://www.kernel.org/doc/html/latest/networking/packet_mmap.html)
-3.  [Ларин Д.В., Гетьман А.И. Средства захвата и обработки высокоскоростного сетевого трафика. Труды ИСП РАН, том 33, вып. 4, 2021 г., стр. 49-68. DOI: 10.15514/ISPRAS–2021–33(4)–4](https://www.ispras.ru/proceedings/docs/2021/33/4/isp_33_2021_4_49.pdf)
-4.  [Презентация «AF_PACKET v4 and PACKET_ZEROCOPY»](https://netdevconf.info/2.2/slides/karlsson-afpacket-talk.pdf)
-
+3. [Ларин Д.В., Гетьман А.И. Средства захвата и обработки высокоскоростного сетевого трафика. Труды ИСП РАН, том 33, вып. 4, 2021 г., стр. 49-68. DOI: 10.15514/ISPRAS–2021–33(4)–4](https://www.ispras.ru/proceedings/docs/2021/33/4/isp_33_2021_4_49.pdf)
+4. [Презентация «AF_PACKET v4 and PACKET_ZEROCOPY»](https://netdevconf.info/2.2/slides/karlsson-afpacket-talk.pdf)

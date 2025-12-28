@@ -9,179 +9,215 @@
 #include <string.h>
 #include <time.h>
 
-// #include <arpa/inet.h>
+// TODO Переделать filter.c
+// TODO Конвертацию socket-filter в jit и запуск в userspace и в ядре
+// TODO Загрузку eBPF, и запуск в jit и без в userspace и в ядре
 
-// #include <netinet/if_ether.h>
-// #include <netinet/ip.h>
-// #include <netinet/tcp.h>
-// #include <netinet/udp.h>
+// Включение тестирование фильтра cBPF в интерпритаторе libpcap,
+#define TEST_CBPF_LIBPCAP 1
+// Включение тестирования фильтра выполненного в виде отдельной функции.
+#define TEST_FUNCTION 1
+
+#if TEST_CBPF_LIBPCAP
+// Включение оптимизации компиляции фильтра в cBPF.
 #define OPTIMIZE_BPF 1
+// Фильтр в формате строки.
 #define FILTER "(ip or ip6) and ( \
 		(tcp and ( \
-				(dst port 80 and (tcp[tcpflags] & tcp-syn) != 0) or \
-        (dst port 443 and (tcp[tcpflags] & (tcp-syn|tcp-ack)) == (tcp-syn|tcp-ack)) or \
-        (dst port 22 and (tcp[tcpflags] & tcp-syn) != 0) or \
-        (dst portrange 10000-20000 and not src port 53) \
+			(dst port 80 and (tcp[tcpflags] & tcp-syn) != 0) or \
+			(dst port 443 and (tcp[tcpflags] & (tcp-syn|tcp-ack)) == (tcp-syn|tcp-ack)) or \
+			(dst port 22 and (tcp[tcpflags] & tcp-syn) != 0) or \
+			(dst portrange 10000-20000 and not src port 53) \
 		)) or \
 		(udp and ( \
-				(dst port 53 and length > 100) or \
-				(dst port 123 and ip[8] == 0x48) or \
-				(src port 67 and dst port 68 and ether[0] & 1 == 0) or \
-				(dst port 5060 and udp[20:2] != 0x5349) or \
-				(dst port 1900 and ip[9] == 0x01 and ip[8] == 0x40) \
+			(dst port 53 and length > 100) or \
+			(dst port 123 and ip[8] == 0x48) or \
+			(src port 67 and dst port 68 and ether[0] & 1 == 0) or \
+			(dst port 5060 and udp[20:2] != 0x5349) or \
+			(dst port 1900 and ip[9] == 0x01 and ip[8] == 0x40) \
 		)) \
 )"
+#endif
 
+#if TEST_FUNCTION
 extern bool check_filter(const uint8_t* packet, size_t length);
+#endif
 
+// Структура статистики работы фильтра.
 struct filter_stats {
 	uint64_t filtered_packets;
 	uint64_t true_filtered;
-	uint64_t bytes_total;
+	uint64_t start_usec;
+	uint64_t end_usec;
 };
 
+// Структура списка пакетов для фильтрации.
 struct pkt_desc {
-	struct pcap_pkthdr hdr;
+	uint32_t len;
+	uint32_t caplen;
 	u_char data[];
 };
 
-struct pkt_desc**
-realloc_descs(struct pkt_desc** ptr, size_t* size) {
-	static const size_t step = 1000000;
-
-	struct pkt_desc** pkts = realloc(ptr, (*size + step) * sizeof(struct pkt_desc*));
-	if (pkts) {
-		memset(pkts + *size, 0, sizeof(struct pkt_desc*) * step);
-		*size += step;
-	}
-	return pkts;
+// Выделение памяти для списка пакетов.
+struct pkt_desc*
+malloc_descs_list(size_t size) {
+	return malloc(size);
 }
 
+// Освобождение памяти для списков пакетов.
 void
-free_descs(struct pkt_desc** pkts) {
-	if (!pkts)
+free_descs_list(struct pkt_desc* first) {
+	if (!first)
 		return;
-
-	size_t i = 0;
-	while (pkts[i] != NULL) {
-		free(pkts[i]);
-	}
-	free(pkts);
+	free(first);
 }
 
-struct pkt_desc**
-pkts_read(pcap_t *handle) {
+// Создание списка пакетов.
+void
+create_descs_list(const char* filename, struct pkt_desc** descs, size_t* count) {
 	size_t size = 0;
-	struct pkt_desc** pkts = NULL;
-
-	size_t i = 0;
-	struct pcap_pkthdr hdr;
-	const u_char* pkt = NULL;
-	while ((pkt = pcap_next(handle, &hdr)) != NULL) {
-		if (i == size) {
-			struct pkt_desc** tmp = pkts;
-			pkts = realloc_descs(pkts, &size);
-			if (!pkts) {
-				free_descs(tmp);
-				return NULL;
-			}
-			printf("Readed %llu packets\n", i);
-		}
-
-		pkts[i] = malloc(sizeof(struct pkt_desc) + hdr.caplen);
-		if (!pkts[i]) {
-			free_descs(pkts);
-			return NULL;
-		}
-
-		pkts[i]->hdr = hdr;
-		memcpy(pkts[i]->data, pkt, hdr.caplen);
-		++i;
-	}
-	return pkts;
-}
-
-uint64_t
-GetUSec() {
-	struct timespec ts;
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	return ((uint64_t)ts.tv_sec) * 1000000LL + ts.tv_nsec / 1000;
-}
-
-void
-filter_pcap_file(const char *filename, const char *bpf_filter_str) {
-	pcap_t *handle;
 	char errbuf[PCAP_ERRBUF_SIZE];
-	struct bpf_program bpf;
-	struct filter_stats stats = {0, 0};
-	int net = 0;
-	struct pkt_desc** pkts = NULL;
-	uint64_t start, end;
-	size_t i = 0;
+	pcap_t* handle = NULL;
 
-	if (bpf_filter_str == NULL || strlen(bpf_filter_str) == 0) {
-		fprintf(stderr, "Unsupported pcap\n");
-		return;
-	}
-
+	*descs = NULL;
+	*count = 0;
+	
+	struct pcap_pkthdr hdr;
+	const u_char* data = NULL;
 	handle = pcap_open_offline(filename, errbuf);
 	if (handle == NULL) {
 		fprintf(stderr, "Open error %s: %s\n", filename, errbuf);
 		return;
 	}
+	while ((pkt = pcap_next(handle, &hdr)) != NULL) {
+		size += sizeof(struct pkt_desc) + hdr.caplen;
+		*count += 1;
+	}
+	pcap_close(handle);
 
-	net = pcap_datalink(handle);
-	if (pcap_compile(handle, &bpf, bpf_filter_str, OPTIMIZE_BPF, net) == -1) {
-		fprintf(stderr, "Unsupported filter: %s\n", pcap_geterr(handle));
-		pcap_close(handle);
+	*descs = malloc_descs_list(size);
+	if (!*descs) {
+		fprintf(stderr, "Error create packet list: %s\n", strerr(errno));
+		return;
+	}
+	struct pkt_desc* pkt = *descs;
+	handle = pcap_open_offline(filename, errbuf);
+	if (handle == NULL) {
+		free(*descs);
+		*descs = NULL;
+		fprintf(stderr, "Open error %s: %s\n", filename, errbuf);
+		return;
+	}
+	while ((data = pcap_next(handle, &hdr)) != NULL) {
+		pkt->len = hdr.len;
+		pkt->caplen = hdr.caplen;
+		memcpy(pkt->data, data, hdr.caplen);
+		pkt = pkt + sizeof(struct pkt_desc) + pkt->caplen;
+	}
+	pcap_close(handle);
+}
+
+// Вспомогательная функция получения времени в наносекундах.
+uint64_t
+get_usec() {
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return ((uint64_t)ts.tv_sec) * 1000000LL + ts.tv_nsec / 1000;
+}
+
+// Вспомогательная функция вывода статистики теста фильтра.
+void
+print_stat(const struct filter_stats* stat, const char* name) {
+	uint64_t ts_usec = stas->end_usec - stas->start_usec;
+	printf("=============\n%s\n", name)
+	printf("Time (usecs): %llu\n", ts_usec);
+	printf("Filtered (all): %llu\n", stat->filtered_packets);
+	printf("Filtered (true): %llu\n", stat->true_filtered);
+	printf("Speed in usec: %lf\n", ((double)(stat->filtered_packets)) / ts_usec);
+}
+
+#if TEST_CBPF_LIBPCAP 
+void
+test_cbpf_libpcap(struct pkt_desc* pkt, size_t count) {
+	pcap_t *handle;
+	char errbuf[PCAP_ERRBUF_SIZE];
+	struct bpf_program bpf;
+	struct filter_stats stat = {0, 0, 0 ,0};
+
+	handle = pcap_open_dead(DLT_EN10, errbuf);
+	if (handle == NULL) {
+		fprintf(stderr, "Open error pcap: %s\n", errbuf);
 		return;
 	}
 
-	pkts = pkts_read(handle);
-	if (!pkts) {
-		fprintf(stderr, "Error of read pkts\n");
+	if (pcap_compile(handle, &bpf, FILTER, OPTIMIZE_BPF, DLT_EN10) == -1) {
+		fprintf(stderr, "Unsupported filter: %s\n", pcap_geterr(handle));
 		pcap_close(handle);
 		return;
 	}
 
 	pcap_close(handle);
 
-	printf("Start filtering...\n");
+	stat.start = get_usec();
+	for (size_t i = 0; i < count; ++i) {
+		stat.filtered_packets++;
 
-	start = GetUSec();
-	while (pkts[i] != NULL) {
-		stats.filtered_packets++;
-		stats.bytes_total += pkts[i]->hdr.len;
+		if (pcap_offline_filter_with_aux(bpf.insn, pkt->data, pkt->len, pkt->caplen, NULL))
+			stat.true_filtered++;
 
-		if (check_filter(pkts[i]->data, pkts[i]->hdr.caplen))
-			stats.true_filtered++;
+		pkt = pkt + sizeof(struct pkt_desc) + pkt->caplen;
+	}
+	end = get_usec();
+	pcap_freecode(&bpf);
 
-		// if (pcap_offline_filter(&bpf, &pkts[i]->hdr, pkts[i]->data))
-		// 	stats.true_filtered++;
+	PrintStat(&stat, "cBPF-virt-libpcap");
+}
+#endif
 
-		++i;
+#if TEST_FUNCTION
+void
+test_function(struct pkt_desc* pkt, size_t count) {
+	struct filter_stats stat = {0, 0, 0 ,0};
+
+	stat.start = GetUSec();
+	for (size_t i = 0; i < count; ++i) {
+		stat.filtered_packets++;
+
+		if (check_filter(pkt->data, pkt->caplen))
+			stat.true_filtered++;
+
+		pkt = pkt + sizeof(struct pkt_desc) + pkt->caplen;
 	}
 	end = GetUSec();
 	pcap_freecode(&bpf);
 
-	printf("Time (usecs): %llu\n", end - start);
-	printf("Filtered (all): %llu\n", stats.filtered_packets);
-	printf("Filtered (true): %llu\n", stats.true_filtered);
-	printf("Speed in usec: %lf\n", ((double)(stats.filtered_packets)) / (end - start));
+	PrintStat(&stat, "native-none-none");
 }
+#endif
 
 int
 main(int argc, char *argv[]) {
 	const char *filename;
-	const char *bpf_filter = NULL;
 
 	if (argc < 2)
 		return 1;
 
 	filename = argv[1];
-	bpf_filter = FILTER;
 
-	filter_pcap_file(filename, bpf_filter);
+	size_t count = 0;
+	struct pkt_desc* pkt = NULL;
+	create_descs_list(filename, &pkt, &count);
+	if (!pkt || !count) {
+		fprintf(stderr, "Error of create packet list\n");
+		return 1;
+	}
+
+#if TEST_CBPF_LIBPCAP
+	test_cbpf_libpcap(pkt, count);
+#endif
+#if TEST_FUNCTION
+	test_function(pkt, count);
+#endif
 
 	return 0;
 }
