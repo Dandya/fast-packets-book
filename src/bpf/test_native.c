@@ -8,6 +8,9 @@
 #include <net/ethernet.h>
 #include <arpa/inet.h>
 
+#include "settings.h"
+#include "tests.h"
+
 #pragma pack(push, 1)
 struct ether_header_custom {
 	uint8_t  ether_dhost[6];
@@ -16,46 +19,54 @@ struct ether_header_custom {
 };
 #pragma pack(pop)
 
-// Вспомогательные функции для доступа к данным с проверкой границ
-static inline bool check_bounds(const uint8_t* data, size_t data_len, size_t offset, size_t needed) {
+// Вспомогательные функции для доступа к данным с проверкой границ.
+static inline bool
+check_bounds(const uint8_t* data, size_t data_len, size_t offset, size_t needed) {
 	return (offset + needed <= data_len);
 }
 
-static inline uint8_t get_u8_safe(const uint8_t* data, size_t data_len, size_t offset) {
+static inline uint8_t
+get_u8_safe(const uint8_t* data, size_t data_len, size_t offset) {
 	return check_bounds(data, data_len, offset, 1) ? data[offset] : 0;
 }
 
-static inline uint16_t get_u16_safe(const uint8_t* data, size_t data_len, size_t offset) {
+static inline uint16_t
+get_u16_safe(const uint8_t* data, size_t data_len, size_t offset) {
 	if (!check_bounds(data, data_len, offset, 2))
 		return 0;
 	return ntohs(*(uint16_t*)(data + offset));
 }
 
-static inline uint32_t get_u32_safe(const uint8_t* data, size_t data_len, size_t offset) {
+static inline uint32_t
+get_u32_safe(const uint8_t* data, size_t data_len, size_t offset) {
 	if (!check_bounds(data, data_len, offset, 4))
 		return 0;
 	return ntohl(*(uint32_t*)(data + offset));
 }
 
-static bool is_unicast_mac(const uint8_t* mac) {
+static bool
+is_unicast_mac(const uint8_t* mac) {
 	return (mac[0] & 0x01) == 0;
 }
 
-static bool is_ipv4_packet(const uint8_t* data, size_t len) {
+static bool
+is_ipv4_packet(const uint8_t* data, size_t len) {
 	if (len < sizeof(struct ether_header_custom))
 		return false;
 	const struct ether_header_custom* eth = (const struct ether_header_custom*)data;
 	return ntohs(eth->ether_type) == ETHERTYPE_IP;
 }
 
-static bool is_ipv6_packet(const uint8_t* data, size_t len) {
+static bool
+is_ipv6_packet(const uint8_t* data, size_t len) {
 	if (len < sizeof(struct ether_header_custom))
 		return false;
 	const struct ether_header_custom* eth = (const struct ether_header_custom*)data;
 	return ntohs(eth->ether_type) == ETHERTYPE_IPV6;
 }
 
-bool check_filter(const uint8_t* packet, size_t length) {
+static bool
+check_filter_native(const uint8_t* packet, size_t length) {
 	if (length < sizeof(struct ether_header_custom))
 		return false;
 
@@ -91,22 +102,22 @@ bool check_filter(const uint8_t* packet, size_t length) {
 			uint16_t dst_port = ntohs(tcph->th_dport);
 			uint8_t tcp_flags = tcph->th_flags;
 
-			// dst port 80 and (tcp[tcpflags] & tcp-syn) != 0
+			// dst port 80 and (tcp[tcpflags] & tcp-syn) != 0.
 			if (dst_port == 80 && (tcp_flags & TH_SYN) != 0) {
 				return true;
 			}
 
-			// dst port 443 and (tcp[tcpflags] & (tcp-syn|tcp-ack)) == (tcp-syn|tcp-ack)
+			// dst port 443 and (tcp[tcpflags] & (tcp-syn|tcp-ack)) == (tcp-syn|tcp-ack).
 			if (dst_port == 443 && (tcp_flags & (TH_SYN | TH_ACK)) == (TH_SYN | TH_ACK)) {
 				return true;
 			}
 
-			// dst port 22 and (tcp[tcpflags] & tcp-syn) != 0
+			// dst port 22 and (tcp[tcpflags] & tcp-syn) != 0.
 			if (dst_port == 22 && (tcp_flags & TH_SYN) != 0) {
 				return true;
 			}
 
-			// dst portrange 10000-20000 and not src port 53
+			// dst portrange 10000-20000 and not src port 53.
 			if (dst_port >= 10000 && dst_port <= 20000 && src_port != 53) {
 				return true;
 			}
@@ -119,47 +130,40 @@ bool check_filter(const uint8_t* packet, size_t length) {
 			uint16_t dst_port = ntohs(udph->uh_dport);
 			uint16_t udp_length = ntohs(udph->uh_ulen);
 
-			// dst port 53 and length > 100
-			if (dst_port == 53 && udp_length > 100) {
+			// dst port 53 and length > 100.
+			if (dst_port == 53 && length > 100) {
 				return true;
 			}
 
-			// dst port 123 and ip[8] == 0x48
-			// ip[8] - это TTL поле в IPv4 заголовке (смещение 8 байт от начала IP заголовка)
+			// dst port 123 and ip[8] == 0x48.
+			// ip[8] - это TTL поле в IPv4 заголовке (смещение 8 байт от начала IP заголовка).
 			if (dst_port == 123 && iph->ip_ttl == 0x48) {
 				return true;
 			}
 
-			// src port 67 and dst port 68 and ether[0] & 1 == 0
-			// Проверяем что MAC адрес назначения unicast (первый бит = 0)
+			// src port 67 and dst port 68 and ether[0] & 1 == 0.
+			// Проверяем что MAC адрес назначения unicast (первый бит = 0).
 			if (src_port == 67 && dst_port == 68 && is_unicast_mac(eth->ether_dhost)) {
 				return true;
 			}
 
-			// dst port 5060 and udp[20:2] != 0x5349
-			// Проверяем 2 байта начиная с 20-го байта UDP payload
+			// dst port 5060 and udp[20:2] != 0x5349.
+			// Проверяем 2 байта начиная с 20-го байта UDP.
 			if (dst_port == 5060) {
-				// UDP заголовок 8 байт, так что payload начинается с transport_layer + 8
 				const uint8_t* udp_payload = transport_layer + sizeof(struct udphdr);
 				size_t udp_payload_len = transport_len - sizeof(struct udphdr);
 
-				if (udp_payload_len >= 22) { // Нужно 20+2 байта
-					uint16_t value = get_u16_safe(udp_payload, udp_payload_len, 20);
+				if (udp_payload_len >= 22 - sizeof(struct udphdr)) { // Нужно 20+2 байта
+					uint16_t value = get_u16_safe(udp_payload, udp_payload_len, 20 - sizeof(struct udphdr));
 					if (value != 0x5349) {
 						return true;
 					}
 				}
 			}
 
-			// dst port 1900 and ip[9] == 0x01 and ip[8] == 0x40
-			// ip[9] - protocol (должен быть UDP = 0x11, а не 0x01!)
-			// Вероятно, в фильтре ошибка - для UDP должно быть ip[9] == 0x11
-			// Но реализуем как в фильтре: проверяем protocol и TTL
+			// dst port 1900 and ip[9] == 0x11 and ip[8] == 0x40.
 			if (dst_port == 1900) {
-				// В IPv4 заголовке:
-				// ip[8] = TTL (iph->ip_ttl)
-				// ip[9] = Protocol (iph->ip_p)
-				if (iph->ip_p == 0x01 && iph->ip_ttl == 0x40) {
+				if (iph->ip_p == 0x11 && iph->ip_ttl == 0x40) {
 					return true;
 				}
 			}
@@ -242,10 +246,35 @@ bool check_filter(const uint8_t* packet, size_t length) {
 				}
 			}
 
-			// dst port 1900 - для IPv6 проверка ip[8] и ip[9] не применима
-			// Можно пропустить или адаптировать
+			if (dst_port == 1900 && ip_layer[9] == 0x11 && ip_layer[8] == 0x40) {
+				return true;
+			}
 		}
 	}
 
 	return false;
+}
+
+// Функция тестирования нативной фильтрации сетевого трафика.
+void
+test_function(struct pkt_descs_list* list) {
+	struct filter_stats stats[TESTS_COUNT];
+
+	for (size_t s_i = 0; s_i < TESTS_COUNT; ++s_i) {
+		struct filter_stats stat = {0, 0, 0, 0};
+		struct pkt_desc* desc = list->descs;
+		stat.start_usec = get_usec();
+		for (size_t i = 0; i < list->count; ++i) {
+			stat.filtered_packets++;
+
+			if (check_filter_native(desc->data, desc->caplen))
+				stat.true_filtered++;
+
+			desc = NEXT_PKT(desc);
+		}
+		stat.end_usec = get_usec();
+		stats[s_i] = stat;
+	}
+
+	print_stat(stats, "native-none-none");
 }

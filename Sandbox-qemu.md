@@ -213,6 +213,7 @@ cd /home/test/fast-packets-book/contrib/dpdk
 meson setup build -Dmachine=native -Doptimization=2 -Ddebug=true
 cd build
 ninja
+ninja install
 ```
 
 ## Полезные материалы

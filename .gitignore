@@ -9,3 +9,10 @@ compile_commands.json
 CTestTestfile.cmake
 _deps
 *.bkp
+*.o
+*.mod.c
+*.ko
+*.symvers
+*.order
+*.mod
+*.cmd
