@@ -253,7 +253,7 @@ SYSCALL_DEFINE3(sendmsg, int, fd, struct user_msghdr __user *, msg, unsigned int
 ```
 
 ```c
-// contrib/linux-6.18/net/socket.c
+// contrib/linux-6.18/net/packet/af_packet.c
 // Пример отправки пакета через пользовательский буфер.
 static int packet_snd(struct socket *sock, struct msghdr *msg, size_t len)
 {
@@ -378,7 +378,7 @@ static int packet_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 9. Заполнение метаданных после заголовка пакета.
 
 ```c
-// contrib/linux-6.18/net/socket.c
+// contrib/linux-6.18/net/packet/af_packet.c
 // Пример записи пакета в кольцо RX.
 static int tpacket_rcv(struct sk_buff *skb, struct net_device *dev,
 		       struct packet_type *pt, struct net_device *orig_dev)
@@ -598,7 +598,7 @@ drop:
 4. Установка статуса об ошибке или о результе отправки.
 
 ```C
-// contrib/linux-6.18/net/socket.c
+// contrib/linux-6.18/net/packet/af_packet.c
 // Пример чтения пакетов из кольца TX и их отправка.
 static int tpacket_snd(struct packet_sock *po, struct msghdr *msg)
 {
