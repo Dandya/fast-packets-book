@@ -19,7 +19,7 @@
 //   https://github.com/DPDK/dpdk/tree/main/examples/skeleton
 
 // Параметр вывода данных о пакете.
-#define DEBUG_HEXDUMP 1
+#define DEBUG_HEXDUMP 0
 
 // Количество дескрипторов в кольцах RX и TX.
 #define RX_RING_SIZE 1024
@@ -119,7 +119,7 @@ hex_dump(struct rte_mbuf* buff, int id) {
 // Аргументы: индекс сетевого интерфейса и указатель на кольцо пакетов.
 static inline int
 port_init(uint16_t port, struct rte_mempool *mbuf_pool) {
-	const uint16_t rx_queue_count = opt_queue_count
+	const uint16_t rx_queue_count = opt_queue_count;
 	const uint16_t tx_queue_count = opt_queue_count;
 	uint16_t nb_rxd = RX_RING_SIZE;
 	uint16_t nb_txd = TX_RING_SIZE;
