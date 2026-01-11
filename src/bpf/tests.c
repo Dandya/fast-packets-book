@@ -52,11 +52,11 @@ create_descs_list(const char* filename, struct pkt_descs_list* list) {
 	struct pcap_pkthdr hdr;
 	const u_char* data = NULL;
 	struct pkt_desc* desc = NULL;
-	
+
 	list->descs = NULL;
 	list->count = 0;
 	list->len = 0;
-	
+
 	handle = pcap_open_offline(filename, errbuf);
 	if (handle == NULL) {
 		fprintf(stderr, "Open error %s: %s\n", filename, errbuf);
@@ -66,8 +66,8 @@ create_descs_list(const char* filename, struct pkt_descs_list* list) {
 		size_t old_page_indx = list->len / PAGE_SIZE;
 		list->len += sizeof(struct pkt_desc) + hdr.caplen;
 		// Проверка допустимой длины для выравнивания.
-		if (old_page_indx != (list->len / PAGE_SIZE)) 
-			list->len += sizeof(struct pkt_desc) + hdr.caplen - (list->len % PAGE_SIZE); 
+		if (old_page_indx != (list->len / PAGE_SIZE))
+			list->len += sizeof(struct pkt_desc) + hdr.caplen - (list->len % PAGE_SIZE);
 		list->count += 1;
 	}
 	pcap_close(handle);
@@ -86,7 +86,7 @@ create_descs_list(const char* filename, struct pkt_descs_list* list) {
 	}
 	desc = list->descs;
 	struct pkt_desc* last_desc = NULL;
-	while ((data = pcap_next(handle, &hdr)) != NULL) { 
+	while ((data = pcap_next(handle, &hdr)) != NULL) {
 		if (last_desc) {
 			if (PAGE_ALIGN(NEXT_PKT(last_desc)) != PAGE_ALIGN((uint8_t*)NEXT_PKT(last_desc) +
 					sizeof(struct pkt_desc) + hdr.caplen))

@@ -2,9 +2,9 @@
 #define TESTS_COUNT 1000
 
 // Включение тестирование фильтра cBPF в интерпритаторе libpcap,
-#define TEST_CBPF_LIBPCAP 0
+#define TEST_CBPF_LIBPCAP 1
 // Включение тестирования фильтра выполненного в виде отдельной функции.
-#define TEST_FUNCTION 0
+#define TEST_FUNCTION 1
 // Включение тестирования фильтра cBPF преобразованного в отдельную функцию.
 #define TEST_CBPF_FCC 1
 
@@ -22,7 +22,7 @@
 // Включение тестирования фильтра eBPF в интерпритаторе DPDK.
 #define TEST_EBPF_VIRT_DPDK 1
 // Включение тестирования фильтра cBPF после JIT-компиляции в DPDK.
-#define TEST_CBPF_JIT_DPDK 1
+#define TEST_CBPF_JIT_DPDK 0
 // Включение тестирования фильтра eBPF после JIT-компиляции в DPDK
 #define TEST_EBPF_JIT_DPDK 1
 
