@@ -37,7 +37,7 @@
 #define SET_PROMISC_MODE 1  // Флаг установки режима promisc.
 #define FANOUT_MODE PACKET_FANOUT_CPU // Тип метода распределения пакетов по очередям.
 #define FANOUT_QUEUE_COUNT 2 // Количество очередей.
-#define FANOUT_ENABLE 1 // Флаг использования несколький очеречей.
+#define FANOUT_ENABLE 1 // Флаг использования нескольких очередей.
 
 bool run_flag[FANOUT_QUEUE_COUNT]; // Флаги работы потоков.
 pthread_mutex_t print_mtx;         // Мьютекс для синхронизации вывода сообщений.
@@ -147,11 +147,11 @@ set_promisc_mode(int sock_fd, int ifindex) {
 	return 0;
 }
 
-// Функция создания колец 3-й версии.
+// Функция создания кольцевых буферов 3-й версии.
 // Аргументы: файловый дескриптор сокета и указатель на структуру с информацией о кольце.
 int
 create_rings(int sock_fd, struct rings_buff* rings) {
-	// Системный вызовы настройки сокета для установки версии колец.
+	// Системный вызовы настройки сокета для установки версии кольцевых буферов.
 	// Подробнее: https://man7.org/linux/man-pages/man7/packet.7.html
 	int version = TPACKET_V3;
 	if (setsockopt(sock_fd, SOL_PACKET, PACKET_VERSION, &version, sizeof(version)) == -1) {
@@ -168,7 +168,7 @@ create_rings(int sock_fd, struct rings_buff* rings) {
 	rings->req.tp_feature_req_word = 0; // Без записи информации о хеше пакета.
 	rings->req.tp_sizeof_priv = 0; // Без выделения приватной памяти в конце блока.
 
-	// Системный вызовы настройки сокета для создания колец.
+	// Системный вызовы настройки сокета для создания кольцевых буферов.
 	// Подробнее: https://man7.org/linux/man-pages/man7/packet.7.html
 	if (setsockopt(sock_fd, SOL_PACKET, PACKET_RX_RING, &rings->req, sizeof(rings->req)) == -1) {
 		perror("Create rx ring");
@@ -213,7 +213,7 @@ create_rings(int sock_fd, struct rings_buff* rings) {
 	return 0;
 }
 
-// Функция освобождения колец 3-й версии.
+// Функция освобождения кольцевых буферов 3-й версии.
 // Аргумент: указатель на структуру с информацией о кольце.
 void
 free_rings(struct rings_buff* rings) {
@@ -293,7 +293,7 @@ setup_af_packet(const char* ifname, int fanout_group_id, struct rings_buff* ring
 		return -1;
 	}
 
-	// Создание колец Rx и TX.
+	// Создание кольцевых буферов Rx и TX.
 	if (create_rings(sock_fd, rings) == -1) {
 		close(sock_fd);
 		return -1;

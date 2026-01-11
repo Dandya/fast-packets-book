@@ -32,9 +32,9 @@
 1. `XDP_SKB` — режим работы, при котором данные для копирования в очередь берутся из структуры `sk_buff`;
 2. `XDP_DRV` — режим работы, при котором сетевое устройство с помощью технологии DMA записывает пакеты напрямую в память пользовательского пространства.
 
-С помощью установки флага `XDP_SHARED_UMEM` в аргументах системного вызова `bind` появляется возможность создания произвольного количества сокетов с одной разделяемой памятью, где метод распределения пакетов будет определяться XDP-программой загруженной в ядро «linux» и закрепленное за получением пакетов на определённом сетевом интерфейсе.
+С помощью установки флага `XDP_SHARED_UMEM` в аргументах системного вызова `bind` появляется возможность создания произвольного количества сокетов с одной разделяемой памятью, где метод распределения пакетов будет определяться XDP-программой загруженной в ядро «Linux» и закрепленное за получением пакетов на определённом сетевом интерфейсе.
 
-А при установке параметра `XDP_USE_SG` появляется возможность захватывать пакеты длиной до 9 килобайт, путём объединения буферов (фрагментов на уровне драйвера) в один дескриптор пакета. Захват больших пакетов также возможен через установку флага `XDP_UMEM_UNALIGNED_CHUNK_FLAG` с использованием технологии «hugepages», что с одной стороны увеличивает эффективность использования оперативной памяти из-за записи всех пакетов без пробелов и выравниваний, но увеличивает накладные расходы на управление памятью.
+А при установке параметра `XDP_USE_SG` появляется возможность захватывать пакеты длиной до 9 килобайт, путём объединения буферов (фрагментов на уровне драйвера) в один дескриптор пакета. Захват больших пакетов также возможен через установку флага `XDP_UMEM_UNALIGNED_CHUNK_FLAG` с использованием технологии Hugepages, что с одной стороны увеличивает эффективность использования оперативной памяти из-за записи всех пакетов без пробелов и выравниваний, но увеличивает накладные расходы на управление памятью.
 
 ### Процесс передачи сетевых пакетов
 
@@ -58,7 +58,7 @@ static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 - Настройка отображения памяти между пространством ядра и пространством пользователя;
 - Настройка DMA для передачи пакетов;
 - Загрузка в ядро XDP-программы;
-- Управление памятью `UMEM`, а также кольцами `RX`, `TX`, `FR`, `CR`.
+- Управление памятью `UMEM`, а также кольцевыми буферами `RX`, `TX`, `FR`, `CR`.
 
 Тогда как драйвер реализует следующие функции:
 
@@ -173,7 +173,7 @@ int igb_xsk_pool_setup(struct igb_adapter *adapter,
 		       u16 qid)
 {
 	return pool ?
-			// Установка памяти UMEM и колец.
+			// Установка памяти UMEM и кольцевых буферов.
 			igb_xsk_pool_enable(adapter, pool, qid) :
 			// Их удаление.
 			igb_xsk_pool_disable(adapter, qid);
@@ -242,7 +242,7 @@ static int igb_run_xdp_zc(struct igb_adapter *adapter, struct igb_ring *rx_ring,
 	act = bpf_prog_run_xdp(xdp_prog, xdp);
 
 	if (likely(act == XDP_REDIRECT)) {
-		// Обновление кольца RX.
+		// Обновление кольцевого буфера RX.
 		err = xdp_do_redirect(adapter->netdev, xdp, xdp_prog);
 		if (!err)
 			return IGB_XDP_REDIR;
@@ -340,7 +340,7 @@ int igb_clean_rx_irq_zc(struct igb_q_vector *q_vector,
 
 	rx_ring->next_to_clean = ntc;
 
-	// Обновление регисторов сетевого устройства.
+	// Обновление регистров сетевого устройства.
 	if (xdp_xmit)
 		igb_finalize_xdp(adapter, xdp_xmit);
 
@@ -403,9 +403,9 @@ int do_xdp_generic(const struct bpf_prog *xdp_prog, struct sk_buff **pskb)
 
 ```c
 // contrib/linux-6.18/net/xdp/xsk.c
-// Пример функций работы с кольцом RX.
+// Пример функций работы с кольцевым буфером RX.
 
-// Вызывается xdp_do_redirect и настраивает кольца в режиме XDP_DRV.
+// Вызывается xdp_do_redirect и настраивается кольцевой буфер в режиме XDP_DRV.
 static int __xsk_rcv_zc(struct xdp_sock *xs, struct xdp_buff_xsk *xskb, u32 len,
 			u32 flags)
 {
@@ -414,7 +414,7 @@ static int __xsk_rcv_zc(struct xdp_sock *xs, struct xdp_buff_xsk *xskb, u32 len,
 
 	// Получение адреса фрагмента.
 	addr = xp_get_handle(xskb, xskb->pool);
-	// Запись в кольцо RX, что пакет доступен.
+	// Запись в кольцевой буфер RX, что пакет доступен.
 	err = xskq_prod_reserve_desc(xs->rx, addr, len, flags);
 	if (err) {
 		xs->rx_queue_full++;
@@ -449,7 +449,7 @@ static int __xsk_rcv(struct xdp_sock *xs, struct xdp_buff *xdp, u32 len)
 		// Копирование.
 		memcpy(xsk_xdp->data - meta_len, copy_from, rem);
 		xskb = container_of(xsk_xdp, struct xdp_buff_xsk, xdp);
-		// Настройка колец.
+		// Настройка кольцевых буферов.
 		err = __xsk_rcv_zc(xs, xskb, len, 0);
 		if (err) {
 			xsk_buff_free(xsk_xdp);
@@ -475,7 +475,7 @@ static int __xsk_rcv(struct xdp_sock *xs, struct xdp_buff *xdp, u32 len)
 		copied = xsk_copy_xdp(copy_to, &copy_from, to_len, &from_len, &frag, rem);
 		rem -= copied;
 
-		// Настройка колец.
+		// Настройка кольцевых буферов.
 		xskb = container_of(xsk_xdp, struct xdp_buff_xsk, xdp);
 		__xsk_rcv_zc(xs, xskb, copied - meta_len, rem ? XDP_PKT_CONTD : 0);
 		meta_len = 0;
@@ -491,7 +491,7 @@ static int __xsk_rcv(struct xdp_sock *xs, struct xdp_buff *xdp, u32 len)
 // contrib/linux-6.18/net/xdp/xsk.c
 // Пример функций отправки пакетов.
 
-// Функция создания sk_buff и заполения их страницами памяти.
+// Функция создания sk_buff и заполнения их страницами памяти.
 // Вызывается функцией xsk_generic_xmit.
 static struct sk_buff *xsk_build_skb_zerocopy(struct xdp_sock *xs,
 					      struct xdp_desc *desc)
@@ -530,7 +530,7 @@ static struct sk_buff *xsk_build_skb_zerocopy(struct xdp_sock *xs,
 	offset = offset_in_page(buffer);
 	addr = buffer - pool->addrs;
 
-	// Заполение структуры страницами памяти UMEM.
+	// Заполнение структуры страницами памяти UMEM.
 	for (copied = 0, i = skb_shinfo(skb)->nr_frags; copied < len; i++) {
 		if (unlikely(i >= MAX_SKB_FRAGS))
 			return ERR_PTR(-EOVERFLOW);
@@ -596,16 +596,15 @@ static int __xsk_sendmsg(struct socket *sock, struct msghdr *m, size_t total_len
 
 ## Разбор примеров
 
-Чтобы работать с программами на основе технологии «eBPF» необходимо установить дополнительные пакеты:
+Чтобы работать с программами на основе технологии eBPF необходимо установить дополнительные пакеты:
 
 ```sh
 apt install clang libbpf-dev pkg-config
 ```
 
-Работа с системой «AF_XDP» будет происходить с помощью библиотеки «xdptool», так как она является предпочтительным способом взаимодействия с «AF_XDP» и имеет хорошую документацию. Компиляция XDP-программ в код «eBPF» производится программой «clang», а для загрузки скомпилированных XDP-программ в ядро будут использоваться функции библиотеки «xdptool».
+Работа с системой «AF_XDP» будет происходить с помощью библиотеки «xdptool», так как она является предпочтительным способом взаимодействия с «AF_XDP» и имеет хорошую документацию. Компиляция XDP-программ в код eBPF производится программой «clang», а для загрузки скомпилированных XDP-программ в ядро будут использоваться функции библиотеки «xdptool».
 
 Все примеры по использованию системы приведены в директории `src/af_xdp` в данном репозитории.
-
 
 ### Настройка сокета
 
@@ -682,7 +681,7 @@ create_umem(void* buffer, uint64_t size) {
 1. индекса сетевого интерфейса;
 2. номера очереди приёма/отправки пакетов сетевого интерфейса;
 3. адреса памяти `UMEM`;
-4. адреса колец для получения/отправки пакетов;
+4. адреса кольцевых буферов для получения/отправки пакетов;
 
 ```c
 // src/af_xdp/user.c
@@ -729,7 +728,7 @@ create_socket(struct umem_info* umem,
 }
 ```
 
-После создания сокета необходимо загрузить его в память XDP-программы в ядре «Linux», чтобы при фильтрации программа могла возвращать индекс сокета для передачи пакета. Также для получения пакетов дополнительно нужно освободить все пакеты, записав данные в кольцо `fill` памяти `UMEM`.
+После создания сокета необходимо загрузить его в память XDP-программы в ядре «Linux», чтобы при фильтрации программа могла возвращать индекс сокета для передачи пакета. Также для получения пакетов дополнительно нужно освободить все пакеты, записав данные в кольцевой буфер `fill` памяти `UMEM`.
 
 ```c
 // src/af_xdp/user.c
@@ -791,7 +790,7 @@ configure_fill_ring(struct umem_info* umem) {
 	ret = xsk_ring_prod__reserve(&umem->pr, XSK_RING_PROD__DEFAULT_NUM_DESCS * 2, &idx); // fill_size
 	if (ret != XSK_RING_PROD__DEFAULT_NUM_DESCS * 2)
 		exit_with_error(-ret);
-	// Запись в очередь смещенией в UMEM для записи по ним пакетов.
+	// Запись в очередь смещений в UMEM для записи по ним пакетов.
 	// Подробнее: https://docs.ebpf.io/ebpf-library/libxdp/functions/xsk_ring_prod__fill_addr
 	for (int i = 0; i < XSK_RING_PROD__DEFAULT_NUM_DESCS * 2; i++)
 		*xsk_ring_prod__fill_addr(&umem->pr, idx++) = i * opt_xsk_frame_size;
@@ -803,7 +802,7 @@ configure_fill_ring(struct umem_info* umem) {
 
 ### Захват и отправка сетевых пакетов
 
-Для захвата пакетов сначала проверяется доступность дескрипторов в кольце `RX` . Если пакеты отсутствуют, программа уведомляет ядро об ожидании пакетов через системный вызов `recvfrom`. Далее резервируются дескрипторы в очереди свободных буферов для последующего записи в них прочитанных пакетов/фрагментов. Для каждого принятого пакета извлекается его адрес в памяти `UMEM` и появляется возможность обработки пакета.
+Для захвата пакетов сначала проверяется доступность дескрипторов в кольцевом буфере `RX` . Если пакеты отсутствуют, программа уведомляет ядро об ожидании пакетов через системный вызов `recvfrom`. Далее резервируются дескрипторы в очереди свободных буферов для последующего записи в них прочитанных пакетов/фрагментов. Для каждого принятого пакета извлекается его адрес в памяти `UMEM` и появляется возможность обработки пакета.
 
 ```c
 // src/af_xdp/user.c
@@ -902,11 +901,11 @@ complete_tx_only(struct socket_info* xsk, int batch_size) {
 	if (!opt_need_wakeup || xsk_ring_prod__needs_wakeup(&xsk->tx))
 		kick_tx(xsk);
 
-	// Получение количества освободивщихся/отправленных пакетов.
+	// Получение количества освободившихся/отправленных пакетов.
 	// Подробнее: https://docs.ebpf.io/ebpf-library/libxdp/functions/xsk_ring_cons__peek/
 	rcvd = xsk_ring_cons__peek(&xsk->umem->cr, batch_size, &idx);
 	if (rcvd > 0) {
-		// Возвращаем ядру дескрипторы, которые он отправил, чтобы записать в них данные заного.
+		// Возвращаем ядру дескрипторы, которые он отправил, чтобы записать в них данные заново.
 		// Подробнее: https://docs.ebpf.io/ebpf-library/libxdp/functions/xsk_ring_cons__peek/
 		xsk_ring_cons__release(&xsk->umem->cr, rcvd);
 	}
@@ -931,7 +930,7 @@ tx_only(struct socket_info* xsk, uint32_t* frame_nb, int batch_size) {
 		uint32_t len = sizeof(syn_pkt);
 
 		do {
-			// Получение дексриптора из очереди записи.
+			// Получение дескриптора из очереди записи.
 			struct xdp_desc* tx_desc = xsk_ring_prod__tx_desc(&xsk->tx,
 									  idx + i);
 			tx_desc->addr = *frame_nb * opt_xsk_frame_size;

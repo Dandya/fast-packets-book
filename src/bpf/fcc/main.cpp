@@ -106,7 +106,7 @@ get_bpf_compare(u_short c) {
 		case BPF_JSET:
 			return "JSET";
 		default:
-			std::cout << "Unknown bpf compire operation\n";
+			std::cout << "Unknown bpf compare operation\n";
 			std::exit(-6);
 	}
 }
@@ -136,8 +136,6 @@ get_bpf_misc_op(u_short c) {
 			std::exit(-8);
 	}
 }
-
-
 
 void
 create_code(const bpf_program& bpf, const std::string& func_name, std::stringstream& code) {

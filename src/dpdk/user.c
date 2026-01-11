@@ -58,7 +58,7 @@ uint64_t tsc_start;
 static uint16_t opt_port_id = 0;
 // Режим работы программы (захват или отправка).
 static int opt_mode = 0;
-// Количество очередей (колец) приема или отправки пакетов.
+// Количество очередей (кольцевых буферов) приема или отправки пакетов.
 static uint16_t opt_queue_count = 1;
 // Количество пакетов для отправки.
 static uint64_t opt_tx_count = INT64_MAX;
@@ -135,7 +135,7 @@ port_init(uint16_t port, struct rte_mempool *mbuf_pool) {
 
 	struct rte_eth_conf port_conf = {
 		.rxmode = {
-			.mtu = 1500, // Величена MTU
+			.mtu = 1500, // Величина MTU
 			.mq_mode = RTE_ETH_MQ_RX_RSS, // Включение распределения пакетов по очередям.
 		},
 		.rx_adv_conf = {
@@ -158,13 +158,13 @@ port_init(uint16_t port, struct rte_mempool *mbuf_pool) {
 	if (dev_info.tx_offload_capa & RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE)
 		port_conf.txmode.offloads |= RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
 
-	// Настройка колец `RX` и `TX` сетевого интерфейса согласно параметрам.
+	// Настройка кольцевых буферов `RX` и `TX` сетевого интерфейса согласно параметрам.
 	// Подробнее: https://doc.dpdk.org/api/rte__ethdev_8h.html#a1a7d3a20b102fee222541fda50fd87bd
 	retval = rte_eth_dev_configure(port, rx_queue_count, tx_queue_count, &port_conf);
 	if (retval != 0)
 		return retval;
 
-	// Проверка и установка размера колец RX и TX.
+	// Проверка и установка размера кольцевых буферов RX и TX.
 	// Подробнее: https://doc.dpdk.org/api/rte__ethdev_8h.html#ad31219b87a1733d5b367a7c04c7f7b48
 	retval = rte_eth_dev_adjust_nb_rx_tx_desc(port, &nb_rxd, &nb_txd);
 	if (retval != 0)
@@ -260,7 +260,7 @@ lcore_main(void* arg) {
         	break;
 				}
 
-				// Настройка буфера до опреленной длины и получение данных.
+				// Настройка буфера до определенной длины и получение данных.
 				// Подробнее: https://doc.dpdk.org/api/rte__mbuf_8h.html#a603c04217c8dd3e35c45e71b15cf11f4
 				char *data = rte_pktmbuf_append(bufs[i], sizeof(syn_pkt));
 				if (unlikely(data == NULL)) {
@@ -274,7 +274,7 @@ lcore_main(void* arg) {
 			}
 
 			if (i == BURST_SIZE) {
-				// Отправка нескольких пакетов и их последующие освобожнение в `rte_mempool`.
+				// Отправка нескольких пакетов и их последующие освобождение в `rte_mempool`.
 				// Подробнее: https://doc.dpdk.org/api/rte__ethdev_8h.html#a83e56cabbd31637efd648e3fc010392b
 				const uint16_t nb_tx = rte_eth_tx_burst(args->port, args->queue, bufs,
 						((opt_tx_count - *args->count) > BURST_SIZE ? BURST_SIZE : opt_tx_count - *args->count));
@@ -325,7 +325,7 @@ usage(const char* prog) {
 	exit(EXIT_FAILURE);
 }
 
-// Функция парсинга аргументов командной строки.
+// Функция разбора аргументов командной строки.
 static void
 parse_command_line(int argc, char** argv) {
 	int option_index, c;
@@ -398,7 +398,7 @@ main(int argc, char *argv[]) {
 
 	// Инициализация сетевого интерфейса.
 	if (port_init(opt_port_id, mbuf_pool) != 0)
-		rte_exit(EXIT_FAILURE, "Error: сannot init port %"PRIu16 "\n", opt_port_id);
+		rte_exit(EXIT_FAILURE, "Error: cannot init port %"PRIu16 "\n", opt_port_id);
 
 	unsigned int lcore_id;
 	int queue_id = 0;

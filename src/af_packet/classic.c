@@ -35,7 +35,7 @@
 #define SET_PROMISC_MODE 1 // Флаг установки режима promisc.
 #define FANOUT_MODE PACKET_FANOUT_CPU // Тип метода распределения пакетов по очередям.
 #define FANOUT_QUEUE_COUNT 2 // Количество очередей.
-#define FANOUT_ENABLE 1 // Флаг использования несколький очеречей.
+#define FANOUT_ENABLE 1 // Флаг использования нескольких очередей.
 
 bool run_flag[FANOUT_QUEUE_COUNT]; // Флаги работы потоков.
 pthread_mutex_t print_mtx;         // Мьютекс для синхронизации вывода сообщений.

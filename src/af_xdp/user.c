@@ -451,7 +451,7 @@ configure_fill_ring(struct umem_info* umem) {
 	ret = xsk_ring_prod__reserve(&umem->pr, XSK_RING_PROD__DEFAULT_NUM_DESCS * 2, &idx);
 	if (ret != XSK_RING_PROD__DEFAULT_NUM_DESCS * 2)
 		exit_with_error(-ret);
-	// Запись в очередь смещенией в UMEM для записи по ним пакетов.
+	// Запись в очередь смещений в UMEM для записи по ним пакетов.
 	// Подробнее: https://docs.ebpf.io/ebpf-library/libxdp/functions/xsk_ring_prod__fill_addr
 	for (int i = 0; i < XSK_RING_PROD__DEFAULT_NUM_DESCS * 2; i++)
 		*xsk_ring_prod__fill_addr(&umem->pr, idx++) = i * opt_xsk_frame_size;
@@ -642,11 +642,11 @@ complete_tx_only(struct socket_info* xsk, int batch_size) {
 	if (!opt_need_wakeup || xsk_ring_prod__needs_wakeup(&xsk->tx))
 		kick_tx(xsk);
 
-	// Получение количества освободивщихся/отправленных пакетов.
+	// Получение количества освободившихся/отправленных пакетов.
 	// Подробнее: https://docs.ebpf.io/ebpf-library/libxdp/functions/xsk_ring_cons__peek/
 	rcvd = xsk_ring_cons__peek(&xsk->umem->cr, batch_size, &idx);
 	if (rcvd > 0) {
-		// Возвращаем ядру дескрипторы, которые он отправил, чтобы записать в них данные заного.
+		// Возвращаем ядру дескрипторы, которые он отправил, чтобы записать в них данные заново.
 		// Подробнее: https://docs.ebpf.io/ebpf-library/libxdp/functions/xsk_ring_cons__peek/
 		xsk_ring_cons__release(&xsk->umem->cr, rcvd);
 	}
@@ -671,7 +671,7 @@ tx_only(struct socket_info* xsk, uint32_t* frame_nb, int batch_size) {
 		uint32_t len = sizeof(syn_pkt);
 
 		do {
-			// Получение дексриптора из очереди записи.
+			// Получение дескриптора из очереди записи.
 			struct xdp_desc* tx_desc = xsk_ring_prod__tx_desc(&xsk->tx,
 									  idx + i);
 			tx_desc->addr = *frame_nb * opt_xsk_frame_size;
@@ -698,7 +698,7 @@ tx_only(struct socket_info* xsk, uint32_t* frame_nb, int batch_size) {
 	return batch_size / frames_per_pkt;
 }
 
-// Функция заверщения отправки пакетов.
+// Функция завершения отправки пакетов.
 static void
 complete_tx_only_all(struct socket_info* xsk)
 {
@@ -771,7 +771,7 @@ static struct option long_options[] = {
 	{0, 0, 0, 0}
 };
 
-// Функиция вывода информации о поддерживаемых аргументах.
+// Функция вывода информации о поддерживаемых аргументах.
 static void usage(const char* prog) {
 	const char* str =
 		"  Usage: %s [OPTIONS]\n"
@@ -780,7 +780,7 @@ static void usage(const char* prog) {
 		"  -t, --txonly		Only send packets\n"
 		"  -i, --interface=<NAME>	Run on interface n\n"
 		"  -q, --queues=n	Use n queue (default 1)\n"
-		"  -l, --load-xdp	Load xdp programm\n"
+		"  -l, --load-xdp	Load xdp program\n"
 		"  -p, --poll		Use poll syscall\n"
 		"  -b, --busy-poll Use busy-poll mode\n"
 		"  -S, --xdp-skb	Use XDP skb-mod\n"
@@ -799,7 +799,7 @@ static void usage(const char* prog) {
 	exit(EXIT_FAILURE);
 }
 
-// Функция парсинга аргументов командной строки.
+// Функция разбора аргументов командной строки.
 static void
 parse_command_line(int argc, char** argv) {
 	int option_index, c;
